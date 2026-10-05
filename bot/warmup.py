@@ -37,6 +37,13 @@ TEMPLATE_NAMES = [
 
 async def warmup_templates(app: Application) -> None:
     """Pre-upload templates and cache file_ids."""
+    # Telegram file IDs belong to the bot that uploaded them. Keep application
+    # records, but never reuse photo IDs after migrating to another bot.
+    if app.bot_data.get("photo_cache_bot_id") != app.bot.id:
+        for key in ("template_file_ids", "template_file_hashes",
+                    "tashkent_office_photo_file_id", "tashkent_office_photo_hash"):
+            app.bot_data.pop(key, None)
+        app.bot_data["photo_cache_bot_id"] = app.bot.id
     groups = driver_groups(ANDIJON) or driver_groups(TASHKENT)
     if not groups:
         logger.warning("warmup: DRIVER_GROUPS empty, skipping")

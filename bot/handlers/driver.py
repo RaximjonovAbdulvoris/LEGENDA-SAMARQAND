@@ -336,6 +336,7 @@ async def _send_car_photo_prompt(update: Update, context: ContextTypes.DEFAULT_T
 
     cache = context.bot_data.setdefault("template_file_ids", {})
     media = []
+    media_names = []
     opened_files = []
 
     try:
@@ -344,12 +345,14 @@ async def _send_car_photo_prompt(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode = "Markdown" if i == 0 else None
             file_id = cache.get(name)
             if file_id:
+                media_names.append(name)
                 media.append(
                     InputMediaPhoto(media=file_id, caption=caption, parse_mode=parse_mode)
                 )
             else:
                 path = template_path(name)
                 if path:
+                    media_names.append(name)
                     f = open(path, "rb")
                     opened_files.append((name, f))
                     media.append(
@@ -360,8 +363,8 @@ async def _send_car_photo_prompt(update: Update, context: ContextTypes.DEFAULT_T
             sent_msgs = await update.message.reply_media_group(media=media)
             # Cache returned file_ids by index
             for i, msg in enumerate(sent_msgs):
-                if msg.photo and i < len(car_names):
-                    cache[car_names[i]] = msg.photo[-1].file_id
+                if msg.photo and i < len(media_names):
+                    cache[media_names[i]] = msg.photo[-1].file_id
         else:
             await update.message.reply_text(instruction, parse_mode="Markdown")
     except Exception as e:

@@ -297,13 +297,16 @@ async def wrong_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return context.user_data.get("_brand_state", BRAND_NAME)
 
 
-def _text_state(handler, state):
+def _text_state(handler, state, accepted=None):
     async def tracked(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["_brand_state"] = state
         return await handler(update, context)
+    async def wrong(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["_brand_state"] = state
+        return await wrong_text(update, context)
     return [
-        MessageHandler(filters.TEXT & ~filters.COMMAND, tracked),
-        MessageHandler(~filters.COMMAND, wrong_text),
+        MessageHandler(accepted if accepted is not None else filters.TEXT & ~filters.COMMAND, tracked),
+        MessageHandler(~filters.COMMAND, wrong),
     ]
 
 
@@ -321,10 +324,10 @@ def build_brand_conversation() -> ConversationHandler:
                 MessageHandler(~filters.COMMAND, brand_warn_wrong),
             ],
             BRAND_NAME: _text_state(brand_get_name, BRAND_NAME),
-            BRAND_PHONE: [
-                MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), brand_get_phone),
-                MessageHandler(~filters.COMMAND, wrong_text),
-            ],
+            BRAND_PHONE: _text_state(
+                brand_get_phone, BRAND_PHONE,
+                filters.CONTACT | (filters.TEXT & ~filters.COMMAND),
+            ),
             BRAND_MODEL: _text_state(brand_get_model, BRAND_MODEL),
             BRAND_YEAR: _text_state(brand_get_year, BRAND_YEAR),
             BRAND_COLOR: _text_state(brand_get_color, BRAND_COLOR),
