@@ -139,7 +139,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
         key = operator.register_application(
             context,
             applicant_id=9,
-            region="namangan",
+            region="andijon",
             kind="driver",
             group_chat_id=100,
             photo_msg_ids=[21, 22, 23],
@@ -166,7 +166,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
         key = operator.register_application(
             context,
             applicant_id=9,
-            region="namangan",
+            region="andijon",
             kind="driver",
             group_chat_id=100,
             photo_msg_ids=[23, 21, 22, 21],
@@ -183,7 +183,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_archive_attempt_does_not_duplicate_album(self):
         bot = BlockingBatchBot()
         context = self._context(bot)
-        key = self._register(context, 9, "namangan", 100, 20)
+        key = self._register(context, 9, "andijon", 100, 20)
         record = context.bot_data["applications"][key]
 
         first = asyncio.create_task(
@@ -198,7 +198,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stale_persistent_copying_flag_does_not_block_archive(self):
         context = self._context()
-        key = self._register(context, 9, "namangan", 100, 20)
+        key = self._register(context, 9, "andijon", 100, 20)
         record = context.bot_data["applications"][key]
         record["archive_state"]["copying"] = True
 
@@ -210,7 +210,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_album_is_retryable_without_copying_keyboard_twice(self):
         context = self._context(FakeBot(batch_failures=1))
-        key = self._register(context, 9, "namangan", 100, 20)
+        key = self._register(context, 9, "andijon", 100, 20)
         record = context.bot_data["applications"][key]
 
         self.assertFalse(await operator._archive_application(context.bot, record, "-300"))
@@ -224,7 +224,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
         key = operator.register_application(
             context,
             applicant_id=9,
-            region="namangan",
+            region="andijon",
             kind="driver",
             group_chat_id=103,
             photo_msg_ids=[204, 205],
@@ -262,7 +262,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_same_user_records_resolve_by_chat_and_keyboard(self):
         context = self._context()
-        first = self._register(context, 9, "namangan", 101, 201)
+        first = self._register(context, 9, "andijon", 101, 201)
         second = self._register(context, 9, "tashkent", 102, 202)
         self.assertEqual(
             operator._find_application(context, 9, 101, 201)[0], first
@@ -288,7 +288,7 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_archive_failure_never_deletes_originals(self):
         bot = FakeBot(fail_ids={203})
         context = self._context(bot)
-        self._register(context, 9, "namangan", 103, 203)
+        self._register(context, 9, "andijon", 103, 203)
         message = FakeMessage(203, 103)
         update = _update("op:ready:9", message, chat_id=103)
         with patch.object(operator, "archive_group", return_value="archive"):

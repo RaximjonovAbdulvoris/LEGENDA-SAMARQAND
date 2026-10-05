@@ -19,7 +19,6 @@ from telegram.ext import (
 
 from bot.handlers.start import (
     MENU_BRAND,
-    MENU_SPECTRE,
     cancel,
     main_keyboard,
     require_region,
@@ -39,7 +38,6 @@ BRAND_JOIN = 107
 CONTINUE_BTN = "✅ Davom etish"
 CONTINUE_KB = ReplyKeyboardMarkup([[CONTINUE_BTN]], resize_keyboard=True, one_time_keyboard=True)
 BRAND_JOIN_KEYBOARD = subscription_keyboard("brand:check_membership")
-SPECTRE_JOIN_KEYBOARD = subscription_keyboard("spectre:check_membership")
 
 WARN_TEXT = (
     "⚠️ *DIQQAT! BRENDLASH SHARTLARI:*\n\n"
@@ -62,11 +60,11 @@ async def _require_region(update, context, allowed_regions=None) -> bool:
 
 
 def _kind(context) -> str:
-    return context.user_data.get("_application_kind", "brand")
+    return "brand"
 
 
 def _kind_title(kind: str) -> str:
-    return "Spectre Energy" if kind == "spectre" else "Brend"
+    return "Brend"
 
 
 def _branch_title(context) -> str:
@@ -113,13 +111,9 @@ async def start_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return await _start_application(update, context, "brand")
 
 
-async def start_spectre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await _start_application(update, context, "spectre")
-
-
 async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     kind = _kind(context)
-    callback = "spectre:check_membership" if kind == "spectre" else "brand:check_membership"
+    callback = "brand:check_membership"
     # The user may have changed branches while the subscription prompt was
     # open.  Validate both branch and destination before collecting data.
     if not await _require_region(update, context):
@@ -136,11 +130,6 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     clear_application(context)
     context.user_data["_application_kind"] = kind
     context.user_data["_application_region"] = region
-    if kind == "spectre":
-        # Spectre asks the same fields as Brand, but has no Brand eligibility
-        # restrictions or warning text.
-        await _send_name_prompt(update, context)
-        return BRAND_NAME
     await update.effective_message.reply_text(
         f"📍 *{region_name(region)} — Brend arizasi*\n\n"
         f"{WARN_TEXT}",
@@ -261,7 +250,7 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return ConversationHandler.END
     # Recheck immediately before sending; an unset destination must never
-    # silently route this application to Namangan.
+    # silently route this application to Andijon.
     group_id = application_group(region, kind)
     if not group_id:
         await _destination_error(update, context, kind)
@@ -272,7 +261,7 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     display = f"@{user.username}" if user.username else user.full_name
     user_link = f'<a href="tg://user?id={user.id}">{h(display)}</a>'
     branch_title = _kind_title(kind)
-    branch_icon = "⚡" if kind == "spectre" else "🎨"
+    branch_icon = "🎨"
     text = (
         f"{branch_icon} <b>{h(region_name(region))} — YANGI {h(branch_title.upper())} ARIZA</b>\n\n"
         f"👤 Foydalanuvchi: {user_link}\n"
@@ -290,7 +279,7 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode=ParseMode.HTML,
             reply_markup=None,
         )
-        # Brand and Spectre stay in their destination groups as plain messages.
+        # Brand applications stay in their destination groups as plain messages.
     except Exception as error:
         logger.exception("brand: arizani guruhga yuborib bo‘lmadi: %s", error)
         clear_application(context)
@@ -333,18 +322,12 @@ def build_brand_conversation() -> ConversationHandler:
                 filters.ChatType.PRIVATE & filters.Regex(f"^{MENU_BRAND}$"),
                 start_brand,
             ),
-            MessageHandler(
-                filters.ChatType.PRIVATE & filters.Regex(f"^{MENU_SPECTRE}$"),
-                start_spectre,
-            ),
         ],
         states={
             BRAND_JOIN: [
-                # Both application types use the same shared subscription
-                # gate; the callback's prefix is selected from user_data.
                 CallbackQueryHandler(
                     check_membership,
-                    pattern=r"^(?:brand|spectre):check_membership$",
+                    pattern=r"^brand:check_membership$",
                 ),
                 MessageHandler(~filters.COMMAND, check_membership),
             ],

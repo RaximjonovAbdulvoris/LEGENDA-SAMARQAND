@@ -1,3 +1,5 @@
+import os
+from html import escape
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -6,10 +8,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 from bot.regions import (
-    NAMANGAN, TASHKENT, REGION_NAMES, clear_application, get_region, region_name,
+    ANDIJON, TASHKENT, REGION_NAMES, clear_application, get_region, region_name,
 )
 from bot.subscription import (
-    NAMANGAN_REQUIRED_CHATS,
+    ANDIJON_REQUIRED_CHATS,
     are_subscribed,
     subscription_keyboard,
 )
@@ -18,19 +20,14 @@ MENU_DRIVER = "📝 Ulanish uchun Ariza"
 MENU_BRAND = "🎨 Brend Ariza"
 MENU_CONTACT = "📞 Bog'lanish uchun"
 MENU_OFFICE = "📍 Ofis manzili"
-MENU_SPECTRE = "⚡ Spectre Energyga ariza"
 MENU_REGION = "🔄 Hududni almashtirish"
 OFFICE_PHOTO = Path(__file__).resolve().parents[1] / "templates" / "office.png"
 TASHKENT_OFFICE_PHOTO = OFFICE_PHOTO.with_name("office_tashkent.png")
-OFFICE_CAPTION = (
-    "📍 <b>Namangan shahri — ofis manzili</b>\n\n"
-    "Mo‘ljal: Zarkan kordiyalogiya\n"
-    "Va Byd namangan yonida\n\n"
-    "👇 Manzilni ko‘rish uchun «Xaritada ochish» tugmasini bosing."
-)
+OFFICE_CAPTION = os.environ.get("ANDIJON_OFFICE_TEXT", "Andijon ofis manzili hozircha kiritilmagan.")
+OFFICE_MAP_URL = os.environ.get("ANDIJON_OFFICE_MAP_URL", "")
 OFFICE_KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton("📍 Xaritada ochish", url="https://yandex.ru/maps/-/CTtEuSZe")],
-])
+    [InlineKeyboardButton("📍 Xaritada ochish", url=OFFICE_MAP_URL)],
+]) if OFFICE_MAP_URL else None
 TASHKENT_OFFICE_TEXT = (
     "📍 <b>Toshkent shahri — ofis manzili</b>\n\n"
     "Manzil — Toshkent shahri, Mirzo Ulug‘bek tumani, "
@@ -43,21 +40,21 @@ TASHKENT_OFFICE_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 def main_keyboard(region: str) -> ReplyKeyboardMarkup:
-    rows = [[MENU_DRIVER], [MENU_BRAND], [MENU_SPECTRE],
+    rows = [[MENU_DRIVER], [MENU_BRAND],
             [MENU_CONTACT], [MENU_OFFICE], [MENU_REGION]]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 # Compatibility for imports outside the regional flows.
-MAIN_KEYBOARD = main_keyboard(NAMANGAN)
+MAIN_KEYBOARD = main_keyboard(ANDIJON)
 
-CONTACT_TEXT = (
+CONTACT_TEXT = os.environ.get("ANDIJON_CONTACT_TEXT", "Andijon aloqa ma’lumotlari hozircha kiritilmagan.")
+TASHKENT_CONTACT_TEXT = (
     "📞 Aloqa: +998 78 113-80-81\n"
-    "✈️ Telegram: @humo_Namangan\n"
+    "✈️ Telegram: @wb_taxi_Humo\n"
     "📢 Telegram kanal: @WB_HUMO_TAXI\n"
     '📸 Instagram: <a href="https://www.instagram.com/humo_wb_taxi/">@humo_wb_taxi</a>'
 )
-TASHKENT_CONTACT_TEXT = CONTACT_TEXT.replace("@humo_Namangan", "@wb_taxi_Humo")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.effective_chat.type != "private":
@@ -95,7 +92,6 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     details = (
         "📝 <b>Ulanish uchun ariza</b> — haydovchi sifatida ro‘yxatdan o‘tish.\n"
         "🎨 <b>Brend ariza</b> — avtomobilni brendlash uchun murojaat.\n"
-        "⚡ <b>Spectre Energyga ariza</b> — avtomobil ma’lumotlarini yuborish.\n"
         "📞 Aloqa ma’lumotlari va 📍 ofis manzili ham quyidagi menyuda."
     )
     await update.effective_message.reply_text(
@@ -112,11 +108,11 @@ async def on_region_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not query or update.effective_chat.type != "private":
         return ConversationHandler.END
     parts = (query.data or "").split(":")
-    if len(parts) == 4 and parts[:3] == ["region", "namangan", "subscription"]:
+    if len(parts) == 4 and parts[:3] == ["region", "andijon", "subscription"]:
         nonce = parts[3]
         if (
-            get_region(context) != NAMANGAN
-            or context.user_data.get("namangan_subscription_nonce") != nonce
+            get_region(context) != ANDIJON
+            or context.user_data.get("andijon_subscription_nonce") != nonce
         ):
             await query.answer(
                 "Bu obuna tekshiruvi eskirgan. /start orqali qayta boshlang.",
@@ -124,7 +120,7 @@ async def on_region_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
             return ConversationHandler.END
         joined = await are_subscribed(
-            context.bot, update.effective_user.id, NAMANGAN_REQUIRED_CHATS
+            context.bot, update.effective_user.id, ANDIJON_REQUIRED_CHATS
         )
         if joined is None:
             await query.answer(
@@ -134,11 +130,11 @@ async def on_region_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return ConversationHandler.END
         if not joined:
             await query.answer(
-                "Avval WB HUMO kanaliga va Namangan guruhiga obuna bo‘ling.",
+                "Avval ko‘rsatilgan kanal va guruhlarga obuna bo‘ling.",
                 show_alert=True,
             )
             return ConversationHandler.END
-        context.user_data.pop("namangan_subscription_nonce", None)
+        context.user_data.pop("andijon_subscription_nonce", None)
         await query.answer()
         try:
             await query.edit_message_reply_markup(reply_markup=None)
@@ -175,16 +171,16 @@ async def on_region_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         context.user_data.clear()
         context.user_data["region"] = region
         await query.answer()
-        if region == NAMANGAN:
-            context.user_data["namangan_subscription_nonce"] = nonce
+        if region == ANDIJON:
+            context.user_data["andijon_subscription_nonce"] = nonce
             await query.edit_message_text(
                 f"✅ {region_name(region)} tanlandi.\n\n"
-                "Namangan bo‘yicha ariza yuborish uchun avval quyidagi "
-                "kanal va guruhga obuna bo‘ling:",
+                "Andijon bo‘yicha ariza yuborish uchun avval quyidagi "
+                "obuna manbalariga qo‘shiling:",
                 parse_mode="HTML",
                 reply_markup=subscription_keyboard(
-                    f"region:namangan:subscription:{nonce}",
-                    NAMANGAN_REQUIRED_CHATS,
+                    f"region:andijon:subscription:{nonce}",
+                    ANDIJON_REQUIRED_CHATS,
                 ),
             )
             return ConversationHandler.END
@@ -223,7 +219,7 @@ async def show_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
     clear_application(context)
     region = get_region(context)
-    text = TASHKENT_CONTACT_TEXT if region == TASHKENT else CONTACT_TEXT
+    text = TASHKENT_CONTACT_TEXT if region == TASHKENT else escape(CONTACT_TEXT)
     await update.message.reply_text(
         f"<b>{region_name(region)} — bog‘lanish</b>\n\n" + text,
         parse_mode="HTML",
@@ -247,8 +243,11 @@ async def show_office(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         )
         cache_key = "tashkent_office_photo"
     else:
-        photo_path, caption, keyboard = OFFICE_PHOTO, OFFICE_CAPTION, OFFICE_KEYBOARD
-        cache_key = "office_photo"
+        await update.message.reply_text(
+            f"📍 <b>Andijon shahri — ofis manzili</b>\n\n{escape(OFFICE_CAPTION)}",
+            parse_mode="HTML", reply_markup=OFFICE_KEYBOARD,
+        )
+        return ConversationHandler.END
     photo_hash = sha256(photo_path.read_bytes()).hexdigest()
     cached_photo = context.bot_data.get(f"{cache_key}_file_id")
     if cached_photo and context.bot_data.get(f"{cache_key}_hash") == photo_hash:

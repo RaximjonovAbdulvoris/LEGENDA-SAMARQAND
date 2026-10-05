@@ -1,5 +1,7 @@
 """Shared subscription gate for all application flows."""
 
+import os
+
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,15 +11,12 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_CHANNEL = "@WB_HUMO_TAXI"
 CHANNEL_URL = "https://t.me/WB_HUMO_TAXI"
-NAMANGAN_GROUP = "@wbhumo_namangan"
-NAMANGAN_GROUP_URL = "https://t.me/wbhumo_namangan"
-
-DEFAULT_REQUIRED_CHATS = (
-    (REQUIRED_CHANNEL, CHANNEL_URL, "Kanalga obuna bo‘lish"),
-)
-NAMANGAN_REQUIRED_CHATS = (
-    *DEFAULT_REQUIRED_CHATS,
-    (NAMANGAN_GROUP, NAMANGAN_GROUP_URL, "Namangan guruhiga qo‘shilish"),
+ANDIJON_GROUP = os.environ.get("ANDIJON_SUBSCRIPTION_GROUP", "")
+ANDIJON_GROUP_URL = os.environ.get("ANDIJON_SUBSCRIPTION_GROUP_URL", "")
+DEFAULT_REQUIRED_CHATS = ((REQUIRED_CHANNEL, CHANNEL_URL, "Kanalga obuna bo‘lish"),)
+ANDIJON_REQUIRED_CHATS = DEFAULT_REQUIRED_CHATS + (
+    ((ANDIJON_GROUP, ANDIJON_GROUP_URL, "Andijon guruhiga qo‘shilish"),)
+    if ANDIJON_GROUP and ANDIJON_GROUP_URL else ()
 )
 
 
@@ -36,8 +35,8 @@ def subscription_keyboard(
 
 
 def required_chats_for_region(region: str | None):
-    if region == "namangan":
-        return NAMANGAN_REQUIRED_CHATS
+    if region == "andijon":
+        return ANDIJON_REQUIRED_CHATS
     return DEFAULT_REQUIRED_CHATS
 
 
@@ -89,7 +88,7 @@ async def require_subscription(
     keyboard = subscription_keyboard(callback_data, required_chats)
     message = update.effective_message
     required_label = (
-        "WB HUMO kanaliga va Namangan guruhiga"
+        "WB HUMO kanaliga va Andijon guruhiga"
         if len(required_chats) > 1
         else "WB HUMO kanaliga"
     )

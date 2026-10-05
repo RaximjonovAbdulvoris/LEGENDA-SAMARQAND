@@ -2,9 +2,9 @@
 from bot.config import ARCHIVE_GROUP, BRAND_GROUP, DRIVER_GROUPS
 from bot.route_settings import destination
 
-NAMANGAN = "namangan"
+ANDIJON = "andijon"
 TASHKENT = "tashkent"
-REGION_NAMES = {TASHKENT: "Toshkent shahri", NAMANGAN: "Namangan shahri"}
+REGION_NAMES = {TASHKENT: "Toshkent shahri", ANDIJON: "Andijon shahri"}
 
 
 def get_region(context) -> str | None:
@@ -24,28 +24,28 @@ def clear_application(context) -> None:
 
 
 def driver_groups(region: str) -> list[str]:
-    if region == NAMANGAN:
-        return [group for group in DRIVER_GROUPS if group]
+    if region == ANDIJON:
+        return [value for i, fallback in enumerate(DRIVER_GROUPS, 1)
+                if (value := destination(f"ANDIJON_DRIVER_GROUP_{i}", fallback))]
     if region == TASHKENT:
-        return [value for i in (1, 2)
+        return [value for i in range(1, 5)
                 if (value := destination(f"TASHKENT_DRIVER_GROUP_{i}"))]
     return []
 
 
 def application_group(region: str, kind: str) -> str:
-    if region == NAMANGAN and kind == "brand":
-        return BRAND_GROUP
-    if region == NAMANGAN and kind == "spectre":
-        return destination("NAMANGAN_SPECTRE_GROUP")
-    if region == TASHKENT and kind in ("brand", "spectre"):
-        key = "TASHKENT_BRAND_GROUP" if kind == "brand" else "TASHKENT_SPECTRE_GROUP"
-        return destination(key)
+    if kind != "brand":
+        return ""
+    if region == ANDIJON:
+        return destination("ANDIJON_BRAND_GROUP", BRAND_GROUP)
+    if region == TASHKENT:
+        return destination("TASHKENT_BRAND_GROUP")
     return ""
 
 
 def archive_group(region: str) -> str:
-    if region == NAMANGAN:
-        return ARCHIVE_GROUP
+    if region == ANDIJON:
+        return destination("ANDIJON_ARCHIVE_GROUP", ARCHIVE_GROUP)
     if region == TASHKENT:
         return destination("TASHKENT_ARCHIVE_GROUP")
     return ""

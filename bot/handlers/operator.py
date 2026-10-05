@@ -111,7 +111,7 @@ def _legacy_record(applicant_id: int, value: dict) -> dict:
     """Normalize the old driver's app_messages[user_id] shape."""
     record = dict(value)
     record.setdefault("applicant_id", int(applicant_id))
-    record.setdefault("region", "namangan")
+    record.setdefault("region", "andijon")
     record.setdefault("kind", "driver")
     record.setdefault("applicant_name", "")
     record.setdefault("username", "")

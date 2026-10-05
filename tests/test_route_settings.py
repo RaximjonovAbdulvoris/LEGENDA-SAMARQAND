@@ -6,9 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from bot.configure import main
-from bot.route_settings import (
-    NAMANGAN_KEYS, TASHKENT_KEYS, destination, read_settings, settings_path,
-)
+from bot.route_settings import ANDIJON_KEYS, TASHKENT_KEYS, destination, read_settings, settings_path
 
 
 class RouteSettingsTests(unittest.TestCase):
@@ -23,83 +21,59 @@ class RouteSettingsTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return main(list(args))
 
-    def configure(self):
-        return self.run_cli(
-            "tashkent", "--driver1=-101", "--driver2=-102", "--brand=-103",
-            "--spectre=-104", "--archive=-105",
-        )
+    def configure(self, city="tashkent"):
+        return self.run_cli(city, "--driver1=-101", "--driver2=-102", "--driver3=-103",
+                            "--driver4=-104", "--brand=-105", "--archive=-106")
 
-    def test_configure_without_token_and_read_all_destinations(self):
-        self.assertEqual(self.configure(), 0)
-        self.assertEqual(len(read_settings()), 5)
-        self.assertEqual(destination(TASHKENT_KEYS["spectre"]), "-104")
+    def test_configure_both_cities_without_token(self):
+        for city, keys in (("tashkent", TASHKENT_KEYS), ("andijon", ANDIJON_KEYS)):
+            self.assertEqual(self.configure(city), 0)
+            for i in range(1, 5):
+                self.assertEqual(destination(keys[f"driver{i}"]), str(-100-i))
+        self.assertEqual(len(read_settings()), 12)
         self.assertEqual(self.run_cli("show"), 0)
 
-    def test_local_values_override_existing_environment(self):
-        self.assertEqual(self.configure(), 0)
-        with patch.dict(os.environ, {"TASHKENT_BRAND_GROUP": "-999"}):
-            self.assertEqual(destination("TASHKENT_BRAND_GROUP"), "-103")
-
-    def test_noninteractive_namangan_spectre_preserves_tashkent_settings(self):
-        self.assertEqual(self.configure(), 0)
-        self.assertEqual(self.run_cli("namangan", "--spectre=-106"), 0)
-        self.assertEqual(destination(NAMANGAN_KEYS["spectre"]), "-106")
-        self.assertEqual(destination(TASHKENT_KEYS["brand"]), "-103")
-        self.assertEqual(len(read_settings()), 6)
-
-    def test_interactive_namangan_prompts_only_for_spectre(self):
-        with patch("builtins.input", side_effect=["-106"]) as prompt:
-            self.assertEqual(self.run_cli("namangan"), 0)
-        prompt.assert_called_once()
-        self.assertEqual(destination("NAMANGAN_SPECTRE_GROUP"), "-106")
-
-    def test_tashkent_configuration_does_not_require_namangan_spectre(self):
-        self.assertEqual(self.configure(), 0)
-        self.assertNotIn(NAMANGAN_KEYS["spectre"], read_settings())
-        self.assertEqual(self.run_cli("check"), 1)
-        self.assertNotIn(
-            "NAMANGAN_SPECTRE_GROUP", settings_path().read_text(encoding="utf-8")
-        )
-
-    def test_scoped_namangan_check_fails_cleanly_when_missing(self):
-        self.assertEqual(self.run_cli("check", "--scope", "namangan"), 1)
-
-    def test_update_keeps_other_fields_and_optional_driver_can_be_disabled(self):
+    def test_local_values_override_environment_and_keep_other_city(self):
         self.configure()
-        self.assertEqual(self.run_cli("tashkent", "--brand=-200", "--driver2=none"), 0)
-        self.assertEqual(destination("TASHKENT_BRAND_GROUP"), "-200")
-        self.assertEqual(destination("TASHKENT_ARCHIVE_GROUP"), "-105")
-        with patch.dict(os.environ, {"TASHKENT_DRIVER_GROUP_2": "-999"}):
-            self.assertEqual(destination("TASHKENT_DRIVER_GROUP_2"), "")
+        self.configure("andijon")
+        self.assertEqual(self.run_cli("andijon", "--driver4=-200"), 0)
+        with patch.dict(os.environ, {"ANDIJON_DRIVER_GROUP_4": "-999"}):
+            self.assertEqual(destination("ANDIJON_DRIVER_GROUP_4"), "-200")
+        self.assertEqual(destination("TASHKENT_DRIVER_GROUP_4"), "-104")
 
-    def test_invalid_or_incomplete_config_does_not_write(self):
-        self.assertEqual(self.run_cli("tashkent", "--brand=-200"), 1)
+    def test_all_four_driver_routes_required_by_configuration(self):
+        self.assertEqual(self.run_cli("andijon", "--driver1=-101", "--driver2=-102",
+                                     "--brand=-105", "--archive=-106"), 1)
         self.assertFalse(settings_path().exists())
         self.configure()
         before = settings_path().read_bytes()
-        self.assertEqual(self.run_cli("tashkent", "--brand=abc"), 1)
+        self.assertEqual(self.run_cli("tashkent", "--driver4=none"), 1)
         self.assertEqual(settings_path().read_bytes(), before)
 
     def test_interactive_setup_and_edit(self):
-        with patch("builtins.input", side_effect=["-101", "-102", "-103", "-104", "-105"]):
-            self.assertEqual(self.run_cli("tashkent"), 0)
-        with patch("builtins.input", side_effect=["", "", "-222", "", ""]):
-            self.assertEqual(self.run_cli("tashkent"), 0)
-        self.assertEqual(destination("TASHKENT_BRAND_GROUP"), "-222")
+        with patch("builtins.input", side_effect=["-101", "-102", "-103", "-104", "-105", "-106"]):
+            self.assertEqual(self.run_cli("andijon"), 0)
+        with patch("builtins.input", side_effect=["", "", "", "-204", "", ""]):
+            self.assertEqual(self.run_cli("andijon"), 0)
+        self.assertEqual(destination("ANDIJON_DRIVER_GROUP_4"), "-204")
 
-    def test_missing_file_uses_environment_but_broken_file_fails_explicitly(self):
-        with patch.dict(os.environ, {"TASHKENT_BRAND_GROUP": "-100"}):
-            self.assertEqual(destination("TASHKENT_BRAND_GROUP"), "-100")
-            settings_path().write_text("{broken", encoding="utf-8")
+    def test_broken_file_and_unknown_keys_fail_explicitly(self):
+        for content in ('{broken', '{"TELEGRAM_BOT_TOKEN":"not-a-token"}'):
+            settings_path().write_text(content, encoding="utf-8")
             with self.assertRaises(ValueError):
-                destination("TASHKENT_BRAND_GROUP")
+                read_settings()
 
-    def test_json_cannot_store_token_or_unknown_keys(self):
-        settings_path().write_text('{"TELEGRAM_BOT_TOKEN": "not-a-token"}', encoding="utf-8")
-        with self.assertRaises(ValueError):
-            read_settings()
+    def test_retired_spectre_routes_are_ignored(self):
+        settings_path().write_text('{"NAMANGAN_SPECTRE_GROUP":"-100", "TASHKENT_SPECTRE_GROUP":"-200", "TASHKENT_DRIVER_GROUP_1":"-101"}', encoding="utf-8")
+        self.assertEqual(read_settings(), {"TASHKENT_DRIVER_GROUP_1": "-101"})
 
-    def test_check_without_configuration_or_token_fails_cleanly(self):
-        self.assertEqual(self.run_cli("check"), 1)
+    def test_checks_fail_cleanly_without_routes_or_token(self):
+        self.assertEqual(self.run_cli("check", "--scope", "all"), 1)
         self.configure()
-        self.assertEqual(self.run_cli("check"), 1)
+        self.configure("andijon")
+        self.assertEqual(self.run_cli("check", "--scope", "all"), 1)
+
+    def test_old_disabled_second_route_does_not_break_upgrade(self):
+        settings_path().write_text('{"TASHKENT_DRIVER_GROUP_1":"-101", "TASHKENT_DRIVER_GROUP_2":""}', encoding="utf-8")
+        self.assertEqual(destination("TASHKENT_DRIVER_GROUP_2"), "")
+        self.assertEqual(self.run_cli("tashkent", "--driver2=-102", "--driver3=-103", "--driver4=-104", "--brand=-105", "--archive=-106"), 0)
