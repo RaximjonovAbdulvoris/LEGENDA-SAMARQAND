@@ -53,12 +53,13 @@ Supply the client's real details using:
 - `ANDIJON_CONTACT_TEXT`: plain text contact details.
 - `ANDIJON_OFFICE_TEXT`: plain text office address and landmark.
 - `ANDIJON_OFFICE_MAP_URL`: office map URL.
-- `ANDIJON_SUBSCRIPTION_GROUP` and `ANDIJON_SUBSCRIPTION_GROUP_URL`: optional
-  extra subscription group ID/username and its Telegram join link (set both).
+- `TASHKENT_CONTACT_TEXT`: plain text contact details for Toshkent.
 
-Until supplied, the bot says that the Andijon office/contact details have not
-been entered. The existing shared WB HUMO channel subscription remains active;
-Andijon never requires membership in the former Namangan group.
+There is no mandatory channel or group subscription in either region. City
+confirmation opens the menu immediately; driver and brand forms collect data
+without membership requests. Route checks validate destination groups only.
+The customer-facing brand is WB LEGENDA TAXI. Supply real client contact links
+through the contact settings; no former brand social links are shown.
 
 ## Deploying changes
 

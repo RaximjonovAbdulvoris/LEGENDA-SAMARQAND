@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _ARCHIVES_IN_FLIGHT: set[tuple[int, int]] = set()
 
 READY_TEXT = (
-    "✅ <b>WB HUMO arizangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+    "✅ <b>WB LEGENDA arizangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
     "📞 Tez orada operatorlarimiz siz bilan bog‘lanishadi."
 )
 
@@ -715,7 +715,7 @@ async def on_operator_text_in_group(update: Update, context: ContextTypes.DEFAUL
         sent = await context.bot.send_message(
             chat_id=applicant_id,
             text=(
-                f"💬 <b>WB HUMO — operator izohi</b>\n"
+                f"💬 <b>WB LEGENDA — operator izohi</b>\n"
                 f"📍 <b>{h(_branch(record))}</b>\n\n{h(text)}"
             ),
             parse_mode="HTML",

@@ -11,7 +11,7 @@ for key in ("TELEGRAM_BOT_TOKEN", "DRIVER_GROUP_1", "DRIVER_GROUP_2",
 from telegram.error import TelegramError
 from telegram.ext import ApplicationHandlerStop, ConversationHandler
 
-from bot import regions, subscription
+from bot import regions
 from bot.handlers import brand, driver, start
 from bot.main import build_application_conversation, intercept_pending_reply
 
@@ -57,8 +57,8 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
         calls = msg.effective_message.reply_text.await_args_list
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0].args[0],
-            "• WB HUMO TAXI • xush kelibsiz\n\n"
-            "“WB HUMO TAXI” ga ulanish va avtomobilni brendlash uchun shu botga ariza qoldiring!\n\n"
+            "• WB LEGENDA TAXI • xush kelibsiz\n\n"
+            "“WB LEGENDA TAXI” ga ulanish va avtomobilni brendlash uchun shu botga ariza qoldiring!\n\n"
             "Avval ishlamoqchi bo’lgan shahringizni tanlang!")
         self.assertTrue(calls[0].kwargs["reply_markup"].remove_keyboard)
         self.assertEqual(calls[1].args[0], "Qaysi hududda ishlamoqchisiz?")
@@ -83,63 +83,6 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(regions.get_region(ctx), "tashkent")
         await start.on_region_choice(callback(f"region:confirm:andijon:{nonce}"), ctx)
         self.assertEqual(regions.get_region(ctx), "tashkent")
-
-    @patch.object(subscription, "ANDIJON_REQUIRED_CHATS", (("@WB_HUMO_TAXI", "https://t.me/WB_HUMO_TAXI", "Kanal"), ("@test_andijon", "https://t.me/test_andijon", "Guruh")))
-    @patch.object(start, "ANDIJON_REQUIRED_CHATS", (("@WB_HUMO_TAXI", "https://t.me/WB_HUMO_TAXI", "Kanal"), ("@test_andijon", "https://t.me/test_andijon", "Guruh")))
-    async def test_andijon_requires_channel_and_group_before_menu(self):
-        ctx = context()
-        await start.start(update(), ctx)
-        nonce = ctx.user_data["region_choice_nonce"]
-        await start.on_region_choice(
-            callback(f"region:pick:andijon:{nonce}"), ctx
-        )
-        await start.on_region_choice(
-            callback(f"region:confirm:andijon:{nonce}"), ctx
-        )
-
-        self.assertEqual(ctx.user_data["andijon_subscription_nonce"], nonce)
-        ctx.bot.get_chat_member.assert_not_awaited()
-
-        ctx.bot.get_chat_member.reset_mock()
-        ctx.bot.get_chat_member.side_effect = [
-            N(status="member"),
-            N(status="left"),
-        ]
-        check = callback(f"region:andijon:subscription:{nonce}")
-        await start.on_region_choice(check, ctx)
-        self.assertEqual(
-            [call.kwargs["chat_id"] for call in ctx.bot.get_chat_member.call_args_list],
-            [subscription.REQUIRED_CHANNEL, "@test_andijon"],
-        )
-        check.callback_query.answer.assert_awaited()
-        self.assertIn("obuna", check.callback_query.answer.await_args.args[0])
-
-    @patch.object(start, "ANDIJON_REQUIRED_CHATS", (("@WB_HUMO_TAXI", "https://t.me/WB_HUMO_TAXI", "Kanal"), ("@test_andijon", "https://t.me/test_andijon", "Guruh")))
-    async def test_andijon_subscription_check_opens_menu_after_both_joined(self):
-        ctx = context()
-        await start.start(update(), ctx)
-        nonce = ctx.user_data["region_choice_nonce"]
-        await start.on_region_choice(
-            callback(f"region:pick:andijon:{nonce}"), ctx
-        )
-        await start.on_region_choice(
-            callback(f"region:confirm:andijon:{nonce}"), ctx
-        )
-
-        check = callback(f"region:andijon:subscription:{nonce}")
-        await start.on_region_choice(check, ctx)
-
-        self.assertEqual(
-            [call.kwargs["chat_id"] for call in ctx.bot.get_chat_member.call_args_list],
-            [subscription.REQUIRED_CHANNEL, "@test_andijon"],
-        )
-        check.callback_query.edit_message_reply_markup.assert_awaited_once_with(
-            reply_markup=None
-        )
-        self.assertIn(
-            "Andijon shahri",
-            check.message.reply_text.await_args.args[0],
-        )
 
     async def test_back_and_switch_discard_unconfirmed_or_partial_form(self):
         ctx = context("andijon")
@@ -183,9 +126,9 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
                          "https://yandex.uz/maps/-/CTxxiJ5~")
         await start.show_contact(msg, context("tashkent"))
         contact = msg.message.reply_text.call_args.args[0]
-        self.assertIn("+998 78 113-80-81", contact)
         self.assertIn("Toshkent shahri", contact)
-        self.assertNotIn("@humo_Andijon", contact)
+        self.assertIn("LEGENDA", contact)
+        self.assertNotIn("Humo", contact)
 
     async def test_city_confirmation_has_no_branch_wording(self):
         for city in ("andijon", "tashkent"):
@@ -216,14 +159,6 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
                 ctx.bot.send_message.assert_not_awaited()
                 ctx.bot.get_chat_member.assert_not_awaited()
                 self.assertEqual(regions.get_region(ctx), "tashkent")
-
-    async def test_shared_membership_gate_fails_closed(self):
-        ctx = context("tashkent")
-        ctx.bot.get_chat_member.return_value = N(status="left")
-        self.assertFalse(await subscription.require_subscription(update(), ctx, callback_data="test"))
-        ctx.bot.get_chat_member.side_effect = TelegramError("unavailable")
-        self.assertFalse(await subscription.require_subscription(update(), ctx, callback_data="test"))
-        self.assertEqual(ctx.bot.get_chat_member.call_args.kwargs["chat_id"], "@WB_HUMO_TAXI")
 
     async def test_brand_full_question_flow_routes_by_region(self):
         destinations = {("andijon", "brand"): "-201", ("tashkent", "brand"): "-202"}
@@ -333,3 +268,33 @@ class FourGroupRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Zarkan", msg.message.reply_text.await_args.args[0])
         await start.show_contact(msg, context("andijon"))
         self.assertNotIn("humo_Namangan", msg.message.reply_text.await_args.args[0])
+
+
+class NoSubscriptionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_both_cities_open_menu_immediately_on_confirmation(self):
+        for city in regions.REGION_NAMES:
+            ctx = context()
+            ctx.bot.get_chat_member.side_effect = TelegramError("membership unavailable")
+            await start.start(update(), ctx)
+            nonce = ctx.user_data["region_choice_nonce"]
+            await start.on_region_choice(callback(f"region:pick:{city}:{nonce}"), ctx)
+            confirm = callback(f"region:confirm:{city}:{nonce}")
+            await start.on_region_choice(confirm, ctx)
+            self.assertEqual(regions.get_region(ctx), city)
+            ctx.bot.get_chat_member.assert_not_awaited()
+            text = confirm.message.reply_text.await_args.args[0]
+            self.assertIn(regions.region_name(city), text)
+            self.assertNotIn("obuna", text.lower())
+
+    async def test_nonmembers_can_start_both_forms_in_both_cities(self):
+        with patch.dict(os.environ, {
+            "ANDIJON_DRIVER_GROUP_1": "-101", "TASHKENT_DRIVER_GROUP_1": "-201",
+            "ANDIJON_BRAND_GROUP": "-102", "TASHKENT_BRAND_GROUP": "-202",
+        }):
+            for city in regions.REGION_NAMES:
+                for handler, state in ((driver.start_driver, driver.NAME), (brand.start_brand, brand.BRAND_WARN)):
+                    ctx = context(city)
+                    ctx.bot.get_chat_member.return_value = N(status="left")
+                    self.assertEqual(await handler(update(), ctx), state)
+                    ctx.bot.get_chat_member.assert_not_awaited()
+                    self.assertNotIn("obuna", ctx.user_data)

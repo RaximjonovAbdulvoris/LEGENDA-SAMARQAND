@@ -70,14 +70,6 @@ async def check_routes(scope: str = "tashkent") -> int:
                 except TelegramError as exc:
                     print(f"{scoped_keys[name]}: {type(exc).__name__}; ID va bot ruxsatlarini tekshiring.")
                     failures += 1
-            try:
-                channel_member = await bot.get_chat_member("@WB_HUMO_TAXI", bot.id)
-                if channel_member.status not in ("administrator", "creator"):
-                    raise ValueError("Bot obuna kanalida administrator emas.")
-                print("@WB_HUMO_TAXI obuna tekshiruvi: OK")
-            except (TelegramError, ValueError):
-                print("@WB_HUMO_TAXI: botni kanal administratori qiling.")
-                failures += 1
     except InvalidToken:
         print("Telegram tokenni qabul qilmadi. TELEGRAM_BOT_TOKEN ni xavfsiz sozlamada yangilang.")
         return 1

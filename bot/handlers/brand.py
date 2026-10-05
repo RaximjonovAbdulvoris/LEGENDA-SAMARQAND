@@ -9,7 +9,6 @@ from telegram import (
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
-    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     ConversationHandler,
@@ -29,15 +28,12 @@ from bot.regions import (
     get_region,
     region_name,
 )
-from bot.subscription import require_subscription, subscription_keyboard
 
 logger = logging.getLogger(__name__)
 
 BRAND_WARN, BRAND_NAME, BRAND_PHONE, BRAND_MODEL, BRAND_YEAR, BRAND_COLOR, BRAND_PLATE = range(100, 107)
-BRAND_JOIN = 107
 CONTINUE_BTN = "✅ Davom etish"
 CONTINUE_KB = ReplyKeyboardMarkup([[CONTINUE_BTN]], resize_keyboard=True, one_time_keyboard=True)
-BRAND_JOIN_KEYBOARD = subscription_keyboard("brand:check_membership")
 
 WARN_TEXT = (
     "⚠️ *DIQQAT! BRENDLASH SHARTLARI:*\n\n"
@@ -104,18 +100,16 @@ async def _start_application(
         await _destination_error(update, context, kind)
         clear_application(context)
         return ConversationHandler.END
-    return await check_membership(update, context)
+    return await begin_form(update, context)
 
 
 async def start_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await _start_application(update, context, "brand")
 
 
-async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     kind = _kind(context)
-    callback = "brand:check_membership"
-    # The user may have changed branches while the subscription prompt was
-    # open.  Validate both branch and destination before collecting data.
+    # Validate the selected city and destination before collecting data.
     if not await _require_region(update, context):
         return ConversationHandler.END
     region = get_region(context)
@@ -125,8 +119,6 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _destination_error(update, context, kind)
         clear_application(context)
         return ConversationHandler.END
-    if not await require_subscription(update, context, callback_data=callback):
-        return BRAND_JOIN
     clear_application(context)
     context.user_data["_application_kind"] = kind
     context.user_data["_application_region"] = region
@@ -324,13 +316,6 @@ def build_brand_conversation() -> ConversationHandler:
             ),
         ],
         states={
-            BRAND_JOIN: [
-                CallbackQueryHandler(
-                    check_membership,
-                    pattern=r"^brand:check_membership$",
-                ),
-                MessageHandler(~filters.COMMAND, check_membership),
-            ],
             BRAND_WARN: [
                 MessageHandler(filters.Regex(f"^{CONTINUE_BTN}$"), brand_warn),
                 MessageHandler(~filters.COMMAND, brand_warn_wrong),

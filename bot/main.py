@@ -159,7 +159,7 @@ def main() -> None:
     register_handlers(app)
     app.add_error_handler(on_error)
 
-    logger.info("🚖 WB TAXI HUMO bot ishga tushdi...")
+    logger.info("🚖 WB TAXI LEGENDA bot ishga tushdi...")
     try:
         app.run_polling(allowed_updates=["message", "callback_query"])
     except InvalidToken:

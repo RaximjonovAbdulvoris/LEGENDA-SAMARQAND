@@ -2,7 +2,6 @@ import os
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
-CHANNEL = os.environ.get("CHANNEL", "@WB_HUMO_TAXI")
 
 # Legacy unprefixed settings remain usable for the replaced city.
 DRIVER_GROUPS = [
