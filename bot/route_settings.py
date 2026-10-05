@@ -5,19 +5,18 @@ import re
 import tempfile
 from pathlib import Path
 
-TASHKENT_KEYS = {
-    "driver1": "TASHKENT_DRIVER_GROUP_1",
-    "driver2": "TASHKENT_DRIVER_GROUP_2",
-    "brand": "TASHKENT_BRAND_GROUP",
-    "spectre": "TASHKENT_SPECTRE_GROUP",
-    "archive": "TASHKENT_ARCHIVE_GROUP",
-}
+def regional_keys(prefix):
+    return {
+        **{f"driver{i}": f"{prefix}_DRIVER_GROUP_{i}" for i in range(1, 5)},
+        "brand": f"{prefix}_BRAND_GROUP",
+        "archive": f"{prefix}_ARCHIVE_GROUP",
+    }
 
-NAMANGAN_KEYS = {
-    "spectre": "NAMANGAN_SPECTRE_GROUP",
-}
-
-ROUTE_KEYS = {*TASHKENT_KEYS.values(), *NAMANGAN_KEYS.values()}
+TASHKENT_KEYS = regional_keys("TASHKENT")
+ANDIJON_KEYS = regional_keys("ANDIJON")
+ROUTE_KEYS = {*TASHKENT_KEYS.values(), *ANDIJON_KEYS.values()}
+# Ignore retired routes in an existing settings file; never use them.
+RETIRED_KEYS = {"NAMANGAN_SPECTRE_GROUP", "TASHKENT_SPECTRE_GROUP"}
 
 
 def settings_path() -> Path:
@@ -31,8 +30,6 @@ def validate(key: str, value: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{key}: ID matn ko'rinishida bo'lishi kerak.")
     value = value.strip()
-    if value == "" and key == TASHKENT_KEYS["driver2"]:
-        return value
     if not re.fullmatch(r"-[1-9][0-9]*", value):
         raise ValueError(f"{key}: manfiy raqamli guruh ID kiriting, masalan -1001234567890.")
     return value
@@ -48,13 +45,26 @@ def read_settings() -> dict[str, str]:
         raise ValueError(f"{path.name} o'qilmadi; faylni tekshiring.") from exc
     if not isinstance(data, dict):
         raise ValueError(f"{path.name}: JSON obyekt bo'lishi kerak.")
-    return {key: validate(key, value) for key, value in data.items()}
+    result = {}
+    for key, value in data.items():
+        if key in RETIRED_KEYS:
+            continue
+        # Preserve a previously disabled optional route when upgrading.
+        if key in ROUTE_KEYS and "_DRIVER_GROUP_" in key and value == "":
+            result[key] = ""
+        else:
+            result[key] = validate(key, value)
+    return result
 
 
-def destination(key: str) -> str:
+def destination(key: str, fallback: str = "") -> str:
     """Explicit terminal settings override env; omitted keys still use env."""
     data = read_settings()
-    return data[key] if key in data else os.environ.get(key, "").strip()
+    if key in data:
+        return data[key]
+    if key.startswith("ANDIJON_"):
+        fallback = os.environ.get(key.removeprefix("ANDIJON_"), fallback)
+    return os.environ.get(key, fallback).strip()
 
 
 def save_settings(updates: dict[str, str]) -> None:

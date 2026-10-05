@@ -14,7 +14,7 @@ from bot.handlers.brand import build_brand_conversation
 from bot.handlers.driver import build_driver_conversation
 from bot.handlers.operator import on_user_reply_message, register_operator_handlers
 from bot.handlers.start import (
-    MENU_BRAND, MENU_CONTACT, MENU_DRIVER, MENU_OFFICE, MENU_REGION, MENU_SPECTRE,
+    MENU_BRAND, MENU_CONTACT, MENU_DRIVER, MENU_OFFICE, MENU_REGION,
     build_contact_handler, build_office_handler, build_region_handler, cancel,
     show_menu, start,
 )
@@ -27,7 +27,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-MENU_ACTIONS = {MENU_DRIVER, MENU_BRAND, MENU_CONTACT, MENU_OFFICE, MENU_SPECTRE, MENU_REGION}
+MENU_ACTIONS = {MENU_DRIVER, MENU_BRAND, MENU_CONTACT, MENU_OFFICE, MENU_REGION}
 
 
 async def intercept_pending_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -159,7 +159,7 @@ def main() -> None:
     register_handlers(app)
     app.add_error_handler(on_error)
 
-    logger.info("🚖 WB TAXI HUMO bot ishga tushdi...")
+    logger.info("🚖 WB TAXI LEGENDA bot ishga tushdi...")
     try:
         app.run_polling(allowed_updates=["message", "callback_query"])
     except InvalidToken:

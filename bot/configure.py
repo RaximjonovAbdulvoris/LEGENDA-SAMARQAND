@@ -5,15 +5,16 @@ import logging
 import os
 
 from bot.route_settings import (
-    NAMANGAN_KEYS, TASHKENT_KEYS, destination, read_settings, save_settings,
+    ANDIJON_KEYS, TASHKENT_KEYS, destination, read_settings, save_settings,
     settings_path, validate,
 )
 
 LABELS = {
     "driver1": "Haydovchi 1-guruh",
-    "driver2": "Haydovchi 2-guruh (ixtiyoriy; o'chirish uchun none)",
+    "driver2": "Haydovchi 2-guruh",
+    "driver3": "Haydovchi 3-guruh",
+    "driver4": "Haydovchi 4-guruh",
     "brand": "Brend guruhi",
-    "spectre": "Spectre Energy guruhi",
     "archive": "Arxiv guruhi",
 }
 
@@ -26,17 +27,15 @@ async def check_routes(scope: str = "tashkent") -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     scoped_keys = {
         "tashkent": TASHKENT_KEYS,
-        "namangan": NAMANGAN_KEYS,
+        "andijon": ANDIJON_KEYS,
         "all": {
             **{f"tashkent_{name}": key for name, key in TASHKENT_KEYS.items()},
-            **{f"namangan_{name}": key for name, key in NAMANGAN_KEYS.items()},
+            **{f"andijon_{name}": key for name, key in ANDIJON_KEYS.items()},
         },
     }[scope]
     routes = {name: destination(key) for name, key in scoped_keys.items()}
     failures = 0
     for name, value in routes.items():
-        if not value and name.endswith("driver2"):
-            continue
         try:
             validate(scoped_keys[name], value)
         except ValueError as exc:
@@ -71,14 +70,6 @@ async def check_routes(scope: str = "tashkent") -> int:
                 except TelegramError as exc:
                     print(f"{scoped_keys[name]}: {type(exc).__name__}; ID va bot ruxsatlarini tekshiring.")
                     failures += 1
-            try:
-                channel_member = await bot.get_chat_member("@WB_HUMO_TAXI", bot.id)
-                if channel_member.status not in ("administrator", "creator"):
-                    raise ValueError("Bot obuna kanalida administrator emas.")
-                print("@WB_HUMO_TAXI obuna tekshiruvi: OK")
-            except (TelegramError, ValueError):
-                print("@WB_HUMO_TAXI: botni kanal administratori qiling.")
-                failures += 1
     except InvalidToken:
         print("Telegram tokenni qabul qilmadi. TELEGRAM_BOT_TOKEN ni xavfsiz sozlamada yangilang.")
         return 1
@@ -94,14 +85,13 @@ def main(argv=None) -> int:
     setup = commands.add_parser("tashkent", help="IDlarni kiritish yoki o'zgartirish")
     for name in TASHKENT_KEYS:
         setup.add_argument(f"--{name}", help=LABELS[name])
-    namangan = commands.add_parser(
-        "namangan", help="Namangan Spectre Energy guruhi ID sini kiritish yoki o'zgartirish"
-    )
-    namangan.add_argument("--spectre", help=LABELS["spectre"])
+    andijon = commands.add_parser("andijon", help="Andijon guruhlarini sozlash")
+    for name in ANDIJON_KEYS:
+        andijon.add_argument(f"--{name}", help=LABELS[name])
     commands.add_parser("show", help="Amaldagi IDlar va ularning manbasini ko'rish")
     check = commands.add_parser("check", help="Token, guruhlar va bot ruxsatlarini tekshirish")
     check.add_argument(
-        "--scope", choices=("tashkent", "namangan", "all"), default="tashkent",
+        "--scope", choices=("tashkent", "andijon", "all"), default="tashkent",
         help="Tekshiriladigan shahar (standart: tashkent)",
     )
     args = parser.parse_args(argv)
@@ -111,11 +101,11 @@ def main(argv=None) -> int:
         if args.command == "show":
             local = read_settings()
             print(f"Sozlama fayli: {settings_path()}")
-            for key in (*TASHKENT_KEYS.values(), *NAMANGAN_KEYS.values()):
+            for key in (*TASHKENT_KEYS.values(), *ANDIJON_KEYS.values()):
                 source = "CMD/fayl" if key in local else "muhit"
                 print(f"{key}: {destination(key) or 'sozlanmagan'} ({source})")
             return 0
-        keys = TASHKENT_KEYS if args.command == "tashkent" else NAMANGAN_KEYS
+        keys = TASHKENT_KEYS if args.command == "tashkent" else ANDIJON_KEYS
         changes = {
             key: getattr(args, name) for name, key in keys.items()
             if getattr(args, name) is not None
@@ -126,9 +116,6 @@ def main(argv=None) -> int:
                 current = destination(key)
                 answer = input(f"{LABELS[name]} [{current or 'sozlanmagan'}]: ").strip()
                 changes[key] = answer or current
-        for key, value in changes.items():
-            if key == TASHKENT_KEYS["driver2"] and value.lower() == "none":
-                changes[key] = ""
         # Validate the complete effective setup before saving any change.
         for name, key in keys.items():
             validate(key, changes.get(key, destination(key)))

@@ -2,16 +2,14 @@ import os
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
-CHANNEL = os.environ.get("CHANNEL", "@WB_HUMO_TAXI")
 
+# Legacy unprefixed settings remain usable for the replaced city.
 DRIVER_GROUPS = [
-    os.environ["DRIVER_GROUP_1"],
-    os.environ["DRIVER_GROUP_2"],
+    os.environ.get(f"ANDIJON_DRIVER_GROUP_{i}", os.environ.get(f"DRIVER_GROUP_{i}", ""))
+    for i in range(1, 5)
 ]
-
-BRAND_GROUP = os.environ["BRAND_GROUP"]
-
-ARCHIVE_GROUP = os.environ.get("ARCHIVE_GROUP", "")
+BRAND_GROUP = os.environ.get("ANDIJON_BRAND_GROUP", os.environ.get("BRAND_GROUP", ""))
+ARCHIVE_GROUP = os.environ.get("ANDIJON_ARCHIVE_GROUP", os.environ.get("ARCHIVE_GROUP", ""))
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 

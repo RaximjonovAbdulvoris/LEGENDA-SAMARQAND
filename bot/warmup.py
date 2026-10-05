@@ -14,7 +14,8 @@ from io import BytesIO
 
 from telegram.ext import Application
 
-from bot.config import DRIVER_GROUPS, TEMPLATES_DIR, template_path
+from bot.config import TEMPLATES_DIR, template_path
+from bot.regions import ANDIJON, TASHKENT, driver_groups
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +37,12 @@ TEMPLATE_NAMES = [
 
 async def warmup_templates(app: Application) -> None:
     """Pre-upload templates and cache file_ids."""
-    if not DRIVER_GROUPS:
+    groups = driver_groups(ANDIJON) or driver_groups(TASHKENT)
+    if not groups:
         logger.warning("warmup: DRIVER_GROUPS empty, skipping")
         return
 
-    warmup_chat = DRIVER_GROUPS[0]
+    warmup_chat = groups[0]
     cache: dict[str, str] = app.bot_data.setdefault("template_file_ids", {})
     hashes: dict[str, str] = app.bot_data.setdefault("template_file_hashes", {})
 

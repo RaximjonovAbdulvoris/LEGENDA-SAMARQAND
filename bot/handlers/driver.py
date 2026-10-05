@@ -29,7 +29,6 @@ from bot.regions import (
     get_region,
     region_name,
 )
-from bot.subscription import require_subscription, subscription_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +52,6 @@ _pending_car_progress_tasks: dict[int, asyncio.Task] = {}
     CAR_PLATE,
 ) = range(13)
 
-JOIN_GROUP = 13
-REQUIRED_GROUP = "@WB_HUMO_TAXI"
-JOIN_KEYBOARD = subscription_keyboard("driver:check_membership")
 
 CONTINUE_BTN = "✅ Davom etish"
 CONTINUE_KB = ReplyKeyboardMarkup(
@@ -144,12 +140,11 @@ async def start_driver(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         clear_application(context)
         return ConversationHandler.END
-    return await check_membership(update, context)
+    return await begin_form(update, context)
 
 
-async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Membership may be checked long after the menu was opened.  Revalidate
-    # the branch and destination before accepting the first form answer.
+async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Validate the selected city and destination before collecting data.
     if not await _require_region(update, context):
         return ConversationHandler.END
     region = _region_required(context)
@@ -162,10 +157,6 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         clear_application(context)
         return ConversationHandler.END
-    if not await require_subscription(
-        update, context, callback_data="driver:check_membership"
-    ):
-        return JOIN_GROUP
 
     # Keep the confirmed region while discarding any stale form data.
     clear_application(context)
@@ -709,12 +700,6 @@ def build_driver_conversation() -> ConversationHandler:
             ),
         ],
         states={
-            JOIN_GROUP: [
-                CallbackQueryHandler(
-                    check_membership, pattern=r"^driver:check_membership$",
-                ),
-                MessageHandler(~filters.COMMAND, check_membership),
-            ],
             NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_name),
                 MessageHandler(~filters.COMMAND, name_wrong),
