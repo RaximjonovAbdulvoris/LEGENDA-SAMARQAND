@@ -1,5 +1,3 @@
-import os
-from html import escape
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -18,21 +16,21 @@ MENU_OFFICE = "📍 Ofis manzili"
 MENU_REGION = "🔄 Hududni almashtirish"
 OFFICE_PHOTO = Path(__file__).resolve().parents[1] / "templates" / "office.png"
 TASHKENT_OFFICE_PHOTO = OFFICE_PHOTO.with_name("office_tashkent.png")
-OFFICE_CAPTION = os.environ.get("ANDIJON_OFFICE_TEXT", "Andijon ofis manzili hozircha kiritilmagan.")
-OFFICE_MAP_URL = os.environ.get("ANDIJON_OFFICE_MAP_URL", "")
-OFFICE_KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton("📍 Xaritada ochish", url=OFFICE_MAP_URL)],
-]) if OFFICE_MAP_URL else None
-TASHKENT_OFFICE_TEXT = (
-    "📍 <b>Toshkent shahri — ofis manzili</b>\n\n"
-    "Manzil — Toshkent shahri, Mirzo Ulug‘bek tumani, "
-    "Traktorsozlar shaharchasi massivi, 1-mavze, 39-uy\n\n"
-    "Mo‘ljal: TTZ diadora\n\n"
+OFFICE_CAPTION = (
+    "📍 <b>WB LEGENDA (ANDIJON OFISI)</b>\n\n"
+    "Mo‘ljal: ZALATOY DOLINA MEXMONXONASI\n\n"
     "👇 Manzilni ko‘rish uchun «Xaritada ochish» tugmasini bosing."
 )
-TASHKENT_OFFICE_KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton("📍 Xaritada ochish", url="https://yandex.uz/maps/-/CTxxiJ5~")],
+OFFICE_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("📍 Xaritada ochish", url="https://maps.app.goo.gl/EnvW29BtaEwMbT5r8")],
 ])
+TASHKENT_OFFICE_TEXT = (
+    "📍 <b>WB LEGENDA (TOSHKENT OFISI)</b>\n\n"
+    "Manzil: CHILONZOR 8-kvartal, 1-dom\n"
+    "Mo‘ljal: QATORTOL BEKATI"
+)
+# No Toshkent map link was supplied; do not show the previous office's map.
+TASHKENT_OFFICE_KEYBOARD = None
 
 def main_keyboard(region: str) -> ReplyKeyboardMarkup:
     rows = [[MENU_DRIVER], [MENU_BRAND],
@@ -43,9 +41,23 @@ def main_keyboard(region: str) -> ReplyKeyboardMarkup:
 # Compatibility for imports outside the regional flows.
 MAIN_KEYBOARD = main_keyboard(ANDIJON)
 
-CONTACT_TEXT = os.environ.get("ANDIJON_CONTACT_TEXT", "Andijon aloqa ma’lumotlari hozircha kiritilmagan.")
-TASHKENT_CONTACT_TEXT = os.environ.get(
-    "TASHKENT_CONTACT_TEXT", "LEGENDA Toshkent aloqa ma’lumotlari hozircha kiritilmagan."
+SHARED_CONTACT_LINKS = (
+    '💰 <b>PUL YECHISH BOTI:</b> <a href="https://t.me/legendapulbot">@legendapulbot</a>\n\n'
+    '📣 <b>TELEGRAM KANAL:</b> <a href="https://t.me/WBLEGENDA_KANAL">@WBLEGENDA_KANAL</a>\n\n'
+    '📸 <b>INSTAGRAM:</b> <a href="https://www.instagram.com/wb_legenda_taxi/">@WB_LEGENDA_TAXI</a>'
+)
+CONTACT_TEXT = (
+    "<b>WB LEGENDA (ANDIJON) — bog‘lanish uchun</b>\n\n"
+    "☎️ <b>ALOQA:</b> +998781505050\n"
+    '📨 <b>TELEGRAM:</b> <a href="https://t.me/wblegendaandijonadmin">@wblegendaandijonadmin</a>\n'
+    + SHARED_CONTACT_LINKS
+)
+TASHKENT_CONTACT_TEXT = (
+    "<b>WB LEGENDA (TOSHKENT) — bog‘lanish uchun</b>\n\n"
+    "☎️ <b>ALOQA:</b> +998781505050\n"
+    "📱 <b>ALOQA:</b> +998931354484\n"
+    '📨 <b>TELEGRAM:</b> <a href="https://t.me/WBLEGENDATAXI">@WBLEGENDATAXI</a>\n'
+    + SHARED_CONTACT_LINKS
 )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -166,7 +178,7 @@ async def show_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     region = get_region(context)
     text = TASHKENT_CONTACT_TEXT if region == TASHKENT else CONTACT_TEXT
     await update.message.reply_text(
-        f"<b>{region_name(region)} — bog‘lanish</b>\n\n" + escape(text),
+        text,
         parse_mode="HTML",
         reply_markup=main_keyboard(region),
         disable_web_page_preview=True,
@@ -189,7 +201,7 @@ async def show_office(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         cache_key = "tashkent_office_photo"
     else:
         await update.message.reply_text(
-            f"📍 <b>Andijon shahri — ofis manzili</b>\n\n{escape(OFFICE_CAPTION)}",
+            OFFICE_CAPTION,
             parse_mode="HTML", reply_markup=OFFICE_KEYBOARD,
         )
         return ConversationHandler.END

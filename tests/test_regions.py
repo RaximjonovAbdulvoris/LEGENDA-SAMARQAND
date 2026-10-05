@@ -118,15 +118,14 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
         msg.message.reply_text.assert_not_awaited()
         office = msg.message.reply_photo.call_args
         self.assertEqual(office.kwargs["photo"].name, str(start.TASHKENT_OFFICE_PHOTO))
-        self.assertIn("Toshkent shahri", office.kwargs["caption"])
-        self.assertIn("Mirzo Ulug‘bek tumani", office.kwargs["caption"])
-        self.assertIn("Traktorsozlar shaharchasi massivi, 1-mavze, 39-uy", office.kwargs["caption"])
-        self.assertIn("TTZ diadora", office.kwargs["caption"])
-        self.assertEqual(office.kwargs["reply_markup"].inline_keyboard[0][0].url,
-                         "https://yandex.uz/maps/-/CTxxiJ5~")
+        self.assertIn("TOSHKENT OFISI", office.kwargs["caption"])
+        self.assertIn("CHILONZOR 8-kvartal, 1-dom", office.kwargs["caption"])
+        self.assertNotIn("Traktorsozlar", office.kwargs["caption"])
+        self.assertIn("QATORTOL BEKATI", office.kwargs["caption"])
+        self.assertIsNone(office.kwargs["reply_markup"])
         await start.show_contact(msg, context("tashkent"))
         contact = msg.message.reply_text.call_args.args[0]
-        self.assertIn("Toshkent shahri", contact)
+        self.assertIn("TOSHKENT", contact)
         self.assertIn("LEGENDA", contact)
         self.assertNotIn("Humo", contact)
 
@@ -298,3 +297,35 @@ class NoSubscriptionTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(await handler(update(), ctx), state)
                     ctx.bot.get_chat_member.assert_not_awaited()
                     self.assertNotIn("obuna", ctx.user_data)
+
+
+class LegendaOfficeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_andijon_office_has_map_without_photo(self):
+        msg = update()
+        await start.show_office(msg, context("andijon"))
+        msg.message.reply_photo.assert_not_awaited()
+        call = msg.message.reply_text.await_args
+        self.assertIn("ANDIJON OFISI", call.args[0])
+        self.assertIn("ZALATOY DOLINA", call.args[0])
+        self.assertEqual(call.kwargs["reply_markup"].inline_keyboard[0][0].url, "https://maps.app.goo.gl/EnvW29BtaEwMbT5r8")
+
+    async def test_contacts_use_city_specific_phone_and_admin(self):
+        for city, admin in (("tashkent", "WBLEGENDATAXI"), ("andijon", "wblegendaandijonadmin")):
+            msg = update()
+            await start.show_contact(msg, context(city))
+            text = msg.message.reply_text.await_args.args[0]
+            self.assertIn("+998781505050", text)
+            self.assertIn(admin, text)
+            self.assertIn("https://t.me/legendapulbot", text)
+            self.assertIn("https://t.me/WBLEGENDA_KANAL", text)
+            self.assertIn("https://www.instagram.com/wb_legenda_taxi/", text)
+            self.assertEqual("+998931354484" in text, city == "tashkent")
+
+    async def test_toshkent_photo_refreshes_when_cached_image_is_old(self):
+        msg, ctx = update(), context("tashkent")
+        ctx.bot_data.update({"tashkent_office_photo_file_id":"old-photo", "tashkent_office_photo_hash":"old-hash"})
+        msg.message.reply_photo.return_value = N(photo=[N(file_id="new-office")])
+        await start.show_office(msg, ctx)
+        self.assertEqual(msg.message.reply_photo.await_args.kwargs["photo"].name, str(start.TASHKENT_OFFICE_PHOTO))
+        await start.show_office(msg, ctx)
+        self.assertEqual(msg.message.reply_photo.await_args.kwargs["photo"], "new-office")

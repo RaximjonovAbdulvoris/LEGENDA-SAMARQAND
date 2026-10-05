@@ -45,21 +45,22 @@ take precedence over environment variables. Enter keeps the existing value.
 The old Spectre settings are ignored. The bot needs administrator permissions
 in operator groups, including deleting messages when archiving applications.
 
-## Andijon details
+## Offices and contacts
 
-The previous Namangan office image, address, map, and contact are not shown.
-Supply the client's real details using:
+Toshkent: the supplied LEGENDA office photograph (`office_tashkent.png`),
+Chilonzor 8-kvartal, 1-dom, Qatortol bekati. No map link is shown until the
+client supplies the Toshkent link.
 
-- `ANDIJON_CONTACT_TEXT`: plain text contact details.
-- `ANDIJON_OFFICE_TEXT`: plain text office address and landmark.
-- `ANDIJON_OFFICE_MAP_URL`: office map URL.
-- `TASHKENT_CONTACT_TEXT`: plain text contact details for Toshkent.
+Andijon: text and Google Maps link, landmark Zalatoy Dolina hotel. No office
+photograph is shown. Contact: +998781505050 and @wblegendaandijonadmin.
 
-There is no mandatory channel or group subscription in either region. City
-confirmation opens the menu immediately; driver and brand forms collect data
-without membership requests. Route checks validate destination groups only.
-The customer-facing brand is WB LEGENDA TAXI. Supply real client contact links
-through the contact settings; no former brand social links are shown.
+Toshkent contact: +998781505050, +998931354484, @WBLEGENDATAXI.
+Both cities show @legendapulbot, @WBLEGENDA_KANAL and @WB_LEGENDA_TAXI.
+These client-supplied details are part of the code; older placeholder contact
+and office environment settings no longer override them.
+
+There is no mandatory subscription in either region. City confirmation opens
+the menu immediately; driver and brand forms make no membership requests.
 
 ## Deploying changes
 
