@@ -127,7 +127,7 @@ class OCRResilienceTests(unittest.IsolatedAsyncioTestCase):
         extract.assert_awaited_once()
         self.assertFalse(record['ocr_delivery_pending'])
 
-    async def test_concurrent_applications_are_serialized_without_dropping_any(self):
+    async def test_concurrent_applications_are_bounded_without_dropping_any(self):
         app, key, record = self.app()
         for number in (2, 3):
             app.bot_data['applications'][(-2001, 100 + number)] = dict(record,
@@ -141,9 +141,9 @@ class OCRResilienceTests(unittest.IsolatedAsyncioTestCase):
             active -= 1
             processed += 1
             return {'status': 'partial', 'values': {}}
-        with patch.object(bg, 'extract_documents', side_effect=extract):
+        with patch.object(bg, 'extract_documents', side_effect=extract), patch('bot.neural_ocr.concurrency', return_value=2):
             await asyncio.gather(*(bg.enrich(app, f'LG-{number:06d}', 9) for number in (1, 2, 3)))
-        self.assertEqual(maximum, 1)
+        self.assertEqual(maximum, 2)
         self.assertEqual(processed, 3)
         self.assertEqual(app.bot.edit_message_text.await_count, 3)
 

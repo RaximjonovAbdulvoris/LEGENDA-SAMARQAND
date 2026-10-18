@@ -31,6 +31,7 @@ from bot.regions import (
     region_name,
 )
 from bot.application_ids import application_code
+from bot.vehicle_numbers import normalize_plate
 from bot.presentation import contact_button, menu_button
 
 logger = logging.getLogger(__name__)
@@ -231,8 +232,8 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if context.user_data.get('_delivery_uncertain'):
         await update.message.reply_text('Oldingi ariza yetib borgani tasdiqlanmadi. Operator bilan bog‘laning yoki /cancel bosing.')
         return BRAND_PLATE
-    plate = (update.message.text or "").strip().upper()
-    if len(plate) < 5 or not any(char.isalnum() for char in plate):
+    plate = normalize_plate(update.message.text)
+    if not plate:
         await update.message.reply_text("❗ To‘g‘ri davlat raqamini kiriting (masalan: 01A123BC):")
         return BRAND_PLATE
 

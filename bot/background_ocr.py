@@ -41,6 +41,9 @@ def schedule_ocr(application, code, applicant_id):
     key = (id(application), code, applicant_id)
     if key in jobs and not jobs[key].done():
         return
+    if sum(not task.done() for identity, task in jobs.items() if identity[0] == id(application)) >= 20:
+        # The pending record is durable; resume_pending will admit it later.
+        return
     task = application.create_task(enrich(application, code, applicant_id), name='local-ocr-enrichment')
     jobs[key] = task
     def finished(done):
@@ -89,7 +92,8 @@ def merge_results(previous, current):
 async def enrich(application, code, applicant_id):
     # A FIFO lock keeps concurrent requests out of the CPU worker without the old
     # two-second rejection. Only file IDs wait in tasks, not downloaded images.
-    queue = _QUEUES.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+    from bot.neural_ocr import concurrency
+    queue = _QUEUES.setdefault(asyncio.get_running_loop(), asyncio.Semaphore(concurrency()))
     async with queue:
         await _enrich(application, code, applicant_id)
 

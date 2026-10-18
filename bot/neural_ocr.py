@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 import time
@@ -15,8 +16,18 @@ ROOT = Path(__file__).resolve().parents[1]
 _GATES = WeakKeyDictionary()
 
 
+def concurrency():
+    # Two single-threaded workers use at most two CPU cores per bot. Keep a
+    # one-worker setting available for smaller servers, never allow more than 2.
+    default = 2 if (os.cpu_count() or 1) >= 4 else 1
+    try:
+        return max(1, min(2, int(os.environ.get('DOCUMENT_OCR_WORKERS', default))))
+    except ValueError:
+        return default
+
+
 async def worker(payload=None):
-    gate = _GATES.setdefault(asyncio.get_running_loop(), asyncio.Semaphore(1))
+    gate = _GATES.setdefault(asyncio.get_running_loop(), asyncio.Semaphore(concurrency()))
     await gate.acquire()
     try:
         return await _worker(payload)

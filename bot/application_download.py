@@ -23,7 +23,7 @@ def folder_name(record):
     return identity or 'Ariza'
 
 
-async def send_archive(bot, record, chat_id, reply_to_message_id):
+async def prepare_archive(bot, record):
     albums = record.get('media_albums')
     if not isinstance(albums, list) or not albums:
         raise ValueError('Bu arizada yuklab olinadigan rasm IDlari saqlanmagan.')
@@ -56,6 +56,11 @@ async def send_archive(bot, record, chat_id, reply_to_message_id):
         raise ValueError('ZIP hajmi Telegram chegarasidan oshgan.')
     archive.seek(0)
     code = re.sub(r'[^A-Za-z0-9_-]', '', record.get('code') or 'ariza')[:40]
-    return await bot.send_document(chat_id=chat_id, document=InputFile(archive, filename=f'{code}_hujjatlar.zip'),
+    return InputFile(archive, filename=f'{code}_hujjatlar.zip'), code
+
+
+async def send_archive(bot, record, chat_id, reply_to_message_id):
+    document, code = await prepare_archive(bot, record)
+    return await bot.send_document(chat_id=chat_id, document=document,
                             reply_to_message_id=reply_to_message_id,
                             caption=f'{code} · Hujjatlar ZIP arxivi')

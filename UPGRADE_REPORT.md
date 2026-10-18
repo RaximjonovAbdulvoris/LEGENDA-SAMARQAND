@@ -47,3 +47,12 @@ Lokal avtomatik testlar OCR, hudud yo‘nalishlari, albom ko‘chirish, qayta ur
 OCRning barcha rasmda xatosiz ishlashi kafolatlanmaydi; noaniq qiymatlar operatorga tekshirish uchun belgilanadi. Eski yozuvda Telegram rasm file IDlari saqlanmagan bo‘lsa, shu eski ariza uchun ZIP tuzib bo‘lmaydi. Bu cheklov yangi arizalarga taalluqli emas.
 
 Shifrlangan holatdan eski kodga qaytishda yangilanishdan oldingi yozuvlar nusxasini tiklash kerak; shifrlangan faylni eski PicklePersistence bilan ochib bo‘lmaydi.
+
+## Ishlashdagi qo‘shimcha tuzatishlar
+
+- ZIP yuklash fon vazifasiga o‘tkazildi: bir vaqtda 2 ta ZIP tayyorlanadi, jami navbat 8 vazifa bilan cheklanadi. Shu ariza uchun tayyorlanish paytida qayta bosish yoki ko‘chirish qisqa javob bilan kutishga qo‘yiladi; boshqa arizalar bloklanmaydi.
+- Fayl yuborishdan oldin `sending` holati diskka saqlanadi. Javob uzilsa, ko‘r-ko‘rona qayta yuborilmaydi va ariza ko‘chirilmaydi. Guruh administratori kelgan ZIPga Reply qilib `/zip_boglash` bilan uni arizaga biriktiradi; fayl yo‘qligini tekshirsa, ariza boshqaruv xabariga Reply qilib `/zip_qayta` bilan qayta urinishni ochadi. Bu tugallangan yuborish bo‘yicha Telegram xabar IDsi yo‘qolganda zarur; to‘liq avtomatik tiklash imkoni yo‘q.
+- Haydovchi va Brend formasida odatiy jismoniy shaxs (`01A123BC`) va korxona (`01123ABC`) avtomobil raqami formatlari tekshiriladi. Harflar lotinda bo‘lishi kerak; maxsus, xorijiy va mototransport raqamlari bu forma tomonidan qabul qilinmaydi.
+- 4 va undan ko‘p CPUli serverda OCR ikkita bir oqimli worker bilan ishlaydi; kichik serverda bitta. `DOCUMENT_OCR_WORKERS=1` yoki `2` bilan sozlanadi. Fon OCR navbatida ko‘pi bilan 20 vazifa ochiladi; qolganlari saqlangan arizalardan keyingi aylanishda olinadi. Yuklama oshganda kutish hali ham bo‘lishi mumkin.
+- Eski tugmalarni yangilash jurnalida `message_missing`, `forbidden`, `not_editable_or_rights`, `rate_limit`, `network` kabi sabablar yoziladi. Xatolik matni va shaxsiy ma’lumotlar jurnalga chiqarilmaydi.
+- Ushbu tuzatishlar menyu matnlari yoki ikonkalarga yangi o‘zgartirish kiritmaydi.

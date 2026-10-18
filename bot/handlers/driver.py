@@ -26,6 +26,7 @@ from bot.document_ocr import prepare_document_summary, SOURCES, enabled
 from bot.background_ocr import PENDING_TEXT, schedule_ocr
 from bot.driver_card import details as driver_details
 from bot.application_ids import application_code
+from bot.vehicle_numbers import normalize_plate
 from bot.presentation import contact_button, menu_button, premium_markup, send_brand_sticker, send_warning_voice, with_keyboard_fallback
 from bot.counter import next_index
 from bot.handlers.operator import build_operator_keyboard, register_application
@@ -530,8 +531,8 @@ async def get_car_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             "operator bilan bog‘laning. Ma’lumotlaringiz saqlandi."
         )
         return CAR_PLATE
-    plate = (update.message.text or "").strip().upper()
-    if len(plate) < 5 or not any(c.isalnum() for c in plate):
+    plate = normalize_plate(update.message.text)
+    if not plate:
         await update.message.reply_text(
             "❗ Iltimos, to'g'ri davlat raqami kiriting (masalan: `01A123BC`):",
             parse_mode="Markdown",

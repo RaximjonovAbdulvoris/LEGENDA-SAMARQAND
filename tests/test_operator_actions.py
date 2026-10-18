@@ -1,4 +1,5 @@
 import unittest
+import asyncio
 from types import SimpleNamespace as N
 from unittest.mock import AsyncMock, patch
 from telegram.error import BadRequest, Forbidden
@@ -26,20 +27,27 @@ class OperatorActionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_download_callback_uses_only_the_resolved_application(self):
         bot,ctx,key,msg=self.setup_case()
-        with patch('bot.application_download.send_archive', new_callable=AsyncMock) as send:
+        with patch('bot.background_download.schedule', return_value=True) as schedule:
             await operator.on_operator_button(_update('op:download:9',msg),ctx)
-        send.assert_awaited_once_with(bot, ctx.bot_data['applications'][key], -1001, 20)
+        schedule.assert_called_once_with(ctx, key, ctx.bot_data['applications'][key])
 
     async def test_zip_deleted_after_successful_move_to_review_or_archive(self):
-        with patch('bot.application_download.send_archive', new_callable=AsyncMock, return_value=N(message_id=88)):
+        from bot.background_download import _JOBS
+        async def finish():
+            await asyncio.gather(*list(_JOBS.get(asyncio.get_running_loop(), {}).values()))
+        with patch('bot.application_download.prepare_archive', new_callable=AsyncMock, return_value=('zip', 'LG-000001')):
             bot, ctx, key, msg = self.setup_case()
+            bot.send_document = AsyncMock(return_value=N(message_id=88))
             await operator.on_operator_button(_update('op:download:9', msg), ctx)
+            await finish()
             self.assertEqual(ctx.bot_data['applications'][key]['zip_message_ids'], [88])
             await operator.on_operator_button(_update('op:incomplete:9', msg), ctx)
             self.assertIn({'chat_id': -1001, 'message_id': 88}, bot.deletes)
 
             bot, ctx, key, msg = self.setup_case()
+            bot.send_document = AsyncMock(return_value=N(message_id=88))
             await operator.on_operator_button(_update('op:download:9', msg), ctx)
+            await finish()
             with patch('bot.handlers.operator.archive_group', return_value='-3001'):
                 await operator.on_operator_button(_update('op:ready:9', msg), ctx)
             self.assertIn({'chat_id': -1001, 'message_id': 88}, bot.deletes)

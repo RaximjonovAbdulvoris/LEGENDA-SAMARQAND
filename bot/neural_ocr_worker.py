@@ -354,7 +354,7 @@ def main():
     from bot.ocr_sandbox import restrict_worker
     restrict_worker()
     from rapidocr_onnxruntime import RapidOCR
-    engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
+    engine = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
     if '--check' in sys.argv:
         print(json.dumps({'ready': True}), flush=True)
         return

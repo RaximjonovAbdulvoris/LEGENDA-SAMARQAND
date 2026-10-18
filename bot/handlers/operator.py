@@ -9,7 +9,7 @@ import logging
 from html import escape as h
 
 from telegram import InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden, RetryAfter, TimedOut, NetworkError
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from bot.regions import archive_group, region_name
@@ -17,6 +17,24 @@ from bot.presentation import button as styled_button, with_keyboard_fallback
 from bot.brand_cleanup import is_plain_application_message, remove_buttons_command
 
 logger = logging.getLogger(__name__)
+
+
+def _refresh_reason(error):
+    # Only known categories are logged: exception text can contain user data.
+    if isinstance(error, Forbidden):
+        return 'forbidden'
+    if isinstance(error, RetryAfter):
+        return 'rate_limit'
+    if isinstance(error, BadRequest):
+        text = str(error).lower()
+        if 'not found' in text:
+            return 'message_missing'
+        if "can't be edited" in text or 'not enough rights' in text:
+            return 'not_editable_or_rights'
+        return 'bad_request'
+    if isinstance(error, (TimedOut, NetworkError)):
+        return 'network'
+    return 'unexpected'
 
 # Process-local only: persistence must never turn an interrupted archive into
 # a permanently locked application after a restart.
@@ -96,6 +114,9 @@ async def refresh_driver_keyboards(application) -> None:
                 continue
             seen.add(key)
             async with control_lock(chat_id, message_id):
+                from bot.background_download import active
+                if active(application, key):
+                    continue
                 if record.get('deleted_source_ids') or record.get('_transfer') or _record_for_key(application, key) is None:
                     continue
                 try:
@@ -108,9 +129,13 @@ async def refresh_driver_keyboards(application) -> None:
                     )
                 except BadRequest as error:
                     if "message is not modified" not in str(error).lower():
-                        logger.warning("Driver controls could not be refreshed for %s", key)
-                except Exception:
-                    logger.warning("Driver controls could not be refreshed for %s", key)
+                        reason = _refresh_reason(error)
+                        if reason == 'message_missing':
+                            logger.info("Driver control refresh skipped: source=%s reason=%s", key, reason)
+                        else:
+                            logger.warning("Driver control refresh failed: source=%s reason=%s", key, reason)
+                except Exception as error:
+                    logger.warning("Driver control refresh failed: source=%s reason=%s", key, _refresh_reason(error))
 
 
 def _forget_application(context, key, record):
@@ -600,9 +625,14 @@ async def _archive_reconstructed_albums(
 
 async def on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from bot.background_ocr import control_lock
+    from bot.background_download import active
     query = update.callback_query
     if query and query.message and update.effective_chat:
-        async with control_lock(update.effective_chat.id, query.message.message_id):
+        key = (update.effective_chat.id, query.message.message_id)
+        if active(context, key):
+            await query.answer('ZIP tayyorlanmoqda. Shu ariza bo‘yicha amalni birozdan keyin bosing.', show_alert=True)
+            return
+        async with control_lock(*key):
             return await _on_operator_button(update, context)
     return await _on_operator_button(update, context)
 
@@ -681,6 +711,10 @@ async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if resolved is not None:
         key, record = resolved
+        from bot.background_download import UNRESOLVED, recovery_text
+        if record.get('zip_delivery_state') in UNRESOLVED and action in ('ready', 'delete', 'incomplete', 'otherpark', 'download'):
+            await query.message.reply_text(recovery_text())
+            return
         if record.get('transfer_source_key'):
             from bot.queue_moves import finish_source_cleanup
             if not await finish_source_cleanup(context, record):
@@ -703,18 +737,9 @@ async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if action == 'download':
-        from bot.application_download import send_archive
-        try:
-            sent = await send_archive(context.bot, resolved[1], chat.id, query.message.message_id)
-            if sent is not None and isinstance(getattr(sent, 'message_id', None), int):
-                resolved[1].setdefault('zip_message_ids', []).append(sent.message_id)
-                from bot.queue_moves import checkpoint
-                await checkpoint(context)
-        except ValueError as error:
-            await query.message.reply_text(str(error))
-        except Exception as error:
-            logger.warning('Application ZIP unavailable (%s)', type(error).__name__)
-            await query.message.reply_text('⚠️ Hujjatlarni ZIPga yig‘ib bo‘lmadi. Birozdan keyin qayta bosing.')
+        from bot.background_download import schedule
+        if not schedule(context, resolved[0], resolved[1]):
+            await query.message.reply_text('ZIP navbati band. Birozdan keyin qayta bosing.')
         return
 
     if action == "delete":
@@ -1003,6 +1028,8 @@ async def on_user_reply_message(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 def register_operator_handlers(app):
+    from bot.background_download import register_handlers as register_download_handlers
+    register_download_handlers(app)
     app.add_handler(CommandHandler(
         "tugmasiz", remove_buttons_command, filters=filters.ChatType.GROUPS,
     ))
