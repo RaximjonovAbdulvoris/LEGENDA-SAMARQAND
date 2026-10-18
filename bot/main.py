@@ -32,6 +32,8 @@ MENU_ACTIONS = {MENU_DRIVER, MENU_BRAND, MENU_CONTACT, MENU_OFFICE,
                 MENU_REGION, "📝 Ulanish uchun Ariza", "🚕 Ulanish uchun Ariza", "🎨 Brend Ariza",
                 "📞 Bog'lanish uchun", "📱 Bog'lanish uchun", "📍 Ofis manzili",
                 "⚡ Spectre Energyga ariza", "🔄 Hududni almashtirish"}
+MENU_ACTIONS.update({"Ulanish uchun Ariza", "Brend Ariza", "Bog'lanish uchun",
+                     "Ofis manzili", "Hududni almashtirish"})
 
 
 async def intercept_pending_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

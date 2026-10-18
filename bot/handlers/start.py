@@ -231,7 +231,7 @@ async def show_office(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 def build_office_handler() -> MessageHandler:
-    return MessageHandler(filters.ChatType.PRIVATE & filters.Regex(f"^{MENU_OFFICE}$"), show_office)
+    return MessageHandler(filters.ChatType.PRIVATE & filters.Regex(r"^(?:📍 )?Ofis manzili$"), show_office)
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

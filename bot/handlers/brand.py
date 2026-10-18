@@ -332,13 +332,13 @@ def build_brand_conversation() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             MessageHandler(
-                filters.ChatType.PRIVATE & filters.Regex(f"^{MENU_BRAND}$"),
+                filters.ChatType.PRIVATE & filters.Regex(r"^(?:🎨 )?Brend Ariza$"),
                 start_brand,
             ),
         ],
         states={
             BRAND_WARN: [
-                MessageHandler(filters.Regex(f"^{CONTINUE_BTN}$"), brand_warn),
+                MessageHandler(filters.Regex(r"^(?:✅ )?Davom etish$"), brand_warn),
                 MessageHandler(~filters.COMMAND, brand_warn_wrong),
             ],
             BRAND_NAME: _text_state(brand_get_name, BRAND_NAME),
