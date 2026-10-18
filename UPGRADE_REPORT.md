@@ -21,7 +21,9 @@ Ishchi branch: `local-legenda-upgrade`; GitHubdagi nishon branch: `adapt-andijon
 
 Toshkent/Andijon, har hudud uchun 4 tagacha ariza guruhi, alohida arxiv va Brend yo‘nalishi; ofislar, telefonlar, administratorlar, pul yechish va ijtimoiy tarmoq havolalari; mavjud asl shablon rasmlari. `office_tashkent.png` almashtirilmagan.
 
-Brend menyusi va formasi qoladi. Ariza Brend guruhiga tugmasiz oddiy xabar sifatida tushadi. Tasdiqlash/rad etish tugmalari hamda Google Sheets integratsiyasi qo‘shilmagan. Spectre va majburiy obuna qo‘shilmagan.
+Brend menyusi va formasi qoladi. Ariza Brend guruhiga tugmasiz oddiy xabar sifatida tushadi. Tasdiqlash/rad etish tugmalari hamda Google Sheets integratsiyasi qo‘shilmagan. Majburiy obuna qo‘shilmagan.
+
+Spectre Energy bo‘limi qo‘shildi: ism-familiya, telefon, model, yil, rang va davlat raqami so‘raladi. Toshkent va Andijonning alohida Spectre guruhlariga tugmasiz oddiy matn yuboriladi; LG raqami berilmaydi va Google Sheets ishlatilmaydi.
 
 ## Keyingi sozlash
 

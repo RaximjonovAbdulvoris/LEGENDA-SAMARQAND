@@ -55,7 +55,7 @@ class PremiumEmojiTests(unittest.IsolatedAsyncioTestCase):
 
     def test_missing_location_icon_remains_visible_in_keyboard(self):
         from bot.handlers.start import main_keyboard
-        button = main_keyboard('tashkent').keyboard[3][0]
+        button = main_keyboard('tashkent').keyboard[4][0]
         self.assertEqual(button.text, '📍 Ofis manzili')
         self.assertNotIn('icon_custom_emoji_id', button.api_kwargs)
         markup = InlineKeyboardMarkup([[InlineKeyboardButton('📍 Xaritada ochish', url='https://example.org')]])
@@ -88,8 +88,8 @@ class PremiumEmojiTests(unittest.IsolatedAsyncioTestCase):
         from bot.handlers.start import main_keyboard
         menu = main_keyboard('tashkent').keyboard
         self.assertEqual(menu[1][0].api_kwargs['icon_custom_emoji_id'], '444')
-        self.assertEqual(menu[3][0].api_kwargs['icon_custom_emoji_id'], '222')
-        self.assertEqual(menu[2][0].api_kwargs['icon_custom_emoji_id'], presentation.CONTACT_EMOJI_ID)
+        self.assertEqual(menu[4][0].api_kwargs['icon_custom_emoji_id'], '222')
+        self.assertEqual(menu[3][0].api_kwargs['icon_custom_emoji_id'], presentation.CONTACT_EMOJI_ID)
         self.assertIn('emoji-id="333"', presentation.premium_markup('DRIVER', '🚕'))
         self.assertIn('emoji-id="444"', presentation.premium_markup('BRAND', '🎨'))
         self.assertEqual(premium_html(presentation.premium_markup('BRAND', '🎨') + ' 📍', 'HTML').count('<tg-emoji'), 2)
@@ -114,15 +114,15 @@ class PremiumEmojiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('SPECTRE', presentation._PACK_ICONS)
         from bot.handlers.start import main_keyboard
         menu = main_keyboard('tashkent').keyboard
-        self.assertFalse(any('Spectre' in b.text for row in menu for b in row))
-        self.assertEqual(menu[2][0].api_kwargs['icon_custom_emoji_id'], presentation.CONTACT_EMOJI_ID)
+        self.assertTrue(any('Spectre' in b.text for row in menu for b in row))
+        self.assertEqual(menu[3][0].api_kwargs['icon_custom_emoji_id'], presentation.CONTACT_EMOJI_ID)
 
     def test_owner_phone_icon_is_used_in_menu_and_contact_text(self):
         from bot.handlers.start import main_keyboard
         with patch.dict(os.environ, {'PREMIUM_ICON_CONTACT': '777'}):
             menu = main_keyboard('tashkent').keyboard
             self.assertEqual(presentation.premium_id('📞'), presentation.CONTACT_EMOJI_ID)
-        self.assertEqual(menu[2][0].api_kwargs['icon_custom_emoji_id'], presentation.CONTACT_EMOJI_ID)
+        self.assertEqual(menu[3][0].api_kwargs['icon_custom_emoji_id'], presentation.CONTACT_EMOJI_ID)
         markup = presentation.premium_markup('CONTACT', '📞')
         self.assertIn(f'emoji-id="{presentation.CONTACT_EMOJI_ID}"', markup)
         self.assertIn(f'emoji-id="{presentation.CONTACT_EMOJI_ID}"',

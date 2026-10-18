@@ -99,7 +99,7 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
             return [button.text for row in start.main_keyboard(region).keyboard for button in row]
         for city in ("andijon", "tashkent"):
             self.assertEqual(buttons(city), [
-                start.MENU_DRIVER, start.MENU_BRAND,
+                start.MENU_DRIVER, start.MENU_BRAND, start.MENU_SPECTRE,
                 start.MENU_CONTACT, start.MENU_OFFICE, start.MENU_REGION,
             ])
             msg = update()
@@ -107,7 +107,7 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
             text = msg.message.reply_text.call_args.args[0]
             self.assertNotIn("filial", text)
             self.assertIn(regions.region_name(city), text)
-            self.assertNotIn("Spectre", text)
+            self.assertIn("Spectre", text)
 
     async def test_tashkent_office_and_contact_are_city_specific(self):
         msg = update()
@@ -251,12 +251,13 @@ class FourGroupRoutingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sent["andijon"], ["-101", "-102", "-103", "-104"] * 2)
             self.assertEqual(sent["tashkent"], ["-201", "-202", "-203", "-204"] * 2)
 
-    def test_spectre_cannot_start_or_route_in_either_city(self):
-        self.assertFalse(hasattr(brand, "start_spectre"))
-        self.assertEqual(len(brand.build_brand_conversation().entry_points), 1)
+    def test_spectre_has_menu_entry_and_only_explicit_regional_routes(self):
+        self.assertTrue(hasattr(brand, "start_spectre"))
+        self.assertEqual(len(brand.build_brand_conversation().entry_points), 2)
         for city in regions.REGION_NAMES:
-            self.assertEqual(regions.application_group(city, "spectre"), "")
-            self.assertTrue(all("Spectre" not in button.text for row in start.main_keyboard(city).keyboard for button in row))
+            with patch.dict(os.environ, {f"{city.upper()}_SPECTRE_GROUP": "-987"}):
+                self.assertEqual(regions.application_group(city, "spectre"), "-987")
+            self.assertTrue(any("Spectre" in button.text for row in start.main_keyboard(city).keyboard for button in row))
 
     async def test_andijon_does_not_display_old_office_or_contact(self):
         msg = update()

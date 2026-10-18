@@ -20,6 +20,7 @@ from telegram.ext import (
 
 from bot.handlers.start import (
     MENU_BRAND,
+    MENU_SPECTRE,
     cancel,
     main_keyboard,
     require_region,
@@ -60,11 +61,11 @@ async def _require_region(update, context, allowed_regions=None) -> bool:
 
 
 def _kind(context) -> str:
-    return "brand"
+    return "spectre" if context.user_data.get("_application_kind") == "spectre" else "brand"
 
 
 def _kind_title(kind: str) -> str:
-    return "Brend"
+    return "Spectre Energy" if kind == "spectre" else "Brend"
 
 
 def _branch_title(context) -> str:
@@ -111,6 +112,10 @@ async def start_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return await _start_application(update, context, "brand")
 
 
+async def start_spectre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await _start_application(update, context, "spectre")
+
+
 async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     kind = _kind(context)
     # Validate the selected city and destination before collecting data.
@@ -126,6 +131,9 @@ async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     clear_application(context)
     context.user_data["_application_kind"] = kind
     context.user_data["_application_region"] = region
+    if kind == "spectre":
+        await _send_name_prompt(update, context)
+        return BRAND_NAME
     await update.effective_message.reply_text(
         f"📍 *{region_name(region)} — Brend arizasi*\n\n"
         f"{WARN_TEXT}",
@@ -265,7 +273,7 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     display = f"@{user.username}" if user.username else user.full_name
     user_link = f'<a href="tg://user?id={user.id}">{h(display)}</a>'
     branch_title = _kind_title(kind)
-    branch_icon = "🎨"
+    branch_icon = "⚡" if kind == "spectre" else "🎨"
     text = (
         f"{branch_icon} <b>{h(region_name(region))} — YANGI {h(branch_title.upper())} ARIZA</b>\n\n"
         f"👤 Foydalanuvchi: {user_link}\n"
@@ -331,6 +339,10 @@ def build_brand_conversation() -> ConversationHandler:
             MessageHandler(
                 filters.ChatType.PRIVATE & filters.Regex(r"^(?:🎨 )?Brend Ariza$"),
                 start_brand,
+            ),
+            MessageHandler(
+                filters.ChatType.PRIVATE & filters.Regex(r"^(?:⚡ )?Spectre Energyga ariza$"),
+                start_spectre,
             ),
         ],
         states={

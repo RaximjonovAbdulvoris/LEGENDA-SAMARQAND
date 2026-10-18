@@ -21,6 +21,9 @@ def problems():
             'chala': destination(f'{city.upper()}_INCOMPLETE_GROUP'),
             'boshqa park': destination(f'{city.upper()}_OTHER_PARK_GROUP'),
         })
+        spectre = application_group(city, "spectre")
+        if spectre:
+            routes["spectre"] = spectre
         for kind, value in routes.items():
             label = f'{city} / {kind}'
             if not re.fullmatch(r'-[1-9][0-9]*', str(value)):

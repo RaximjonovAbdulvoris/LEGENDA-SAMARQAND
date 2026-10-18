@@ -34,6 +34,8 @@ def driver_groups(region: str) -> list[str]:
 
 
 def application_group(region: str, kind: str) -> str:
+    if kind == "spectre" and region in REGION_NAMES:
+        return destination(f"{region.upper()}_SPECTRE_GROUP")
     if kind != "brand":
         return ""
     if region == ANDIJON:

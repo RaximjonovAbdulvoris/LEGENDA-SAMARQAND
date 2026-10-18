@@ -17,11 +17,12 @@ def update(text):
 
 class PremiumMenuDispatchTests(unittest.IsolatedAsyncioTestCase):
     def test_serialized_premium_menu_reaches_every_handler(self):
-        icons = {f'PREMIUM_ICON_{kind}': '12345' for kind in ('DRIVER', 'BRAND', 'LOCATION')}
+        icons = {f'PREMIUM_ICON_{kind}': '12345' for kind in ('DRIVER', 'BRAND', 'LOCATION', 'SPECTRE')}
         with patch.dict(os.environ, icons):
             keyboard = premium_keyboard(start.main_keyboard('tashkent'))['keyboard']
         handlers = [driver.build_driver_conversation().entry_points[0],
                     brand.build_brand_conversation().entry_points[0],
+                    brand.build_brand_conversation().entry_points[1],
                     start.build_contact_handler(), start.build_office_handler()]
         for row, handler in zip(keyboard, handlers):
             with self.subTest(label=row[0]['text']):
@@ -38,7 +39,7 @@ class PremiumMenuDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handler.check_update(update(brand.CONTINUE_BTN)))
 
     async def test_plain_menu_action_cancels_pending_relay(self):
-        for label in ('Ofis manzili', 'Brend Ariza', "Bog'lanish uchun", 'Hududni almashtirish'):
+        for label in ('Ofis manzili', 'Brend Ariza', "Bog'lanish uchun", 'Hududni almashtirish', 'Spectre Energyga ariza'):
             ctx = N(bot_data={'pending_user_replies': {123: ('old', 1)}})
             message = N(text=label)
             event = N(effective_user=N(id=123), message=message)

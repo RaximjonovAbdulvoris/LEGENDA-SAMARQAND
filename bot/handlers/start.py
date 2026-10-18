@@ -12,6 +12,7 @@ from bot.regions import (
 
 MENU_DRIVER = "📝 Ulanish uchun Ariza"
 MENU_BRAND = "🎨 Brend Ariza"
+MENU_SPECTRE = "⚡ Spectre Energyga ariza"
 MENU_CONTACT = "📞 Bog'lanish uchun"
 MENU_OFFICE = "📍 Ofis manzili"
 MENU_REGION = "🔄 Hududni almashtirish"
@@ -36,6 +37,7 @@ TASHKENT_OFFICE_KEYBOARD = None
 def main_keyboard(region: str) -> ReplyKeyboardMarkup:
     rows = [[menu_button(MENU_DRIVER, icon='DRIVER')],
             [menu_button(MENU_BRAND, icon='BRAND')],
+            [menu_button(MENU_SPECTRE, icon='SPECTRE')],
             [menu_button(MENU_CONTACT, icon='CONTACT')],
             [menu_button(MENU_OFFICE, icon='LOCATION')],
             [menu_button(MENU_REGION, icon='LOCATION')]]
@@ -102,6 +104,7 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     details = (
         "📝 <b>Ulanish uchun ariza</b> — haydovchi sifatida ro‘yxatdan o‘tish.\n"
         "🎨 <b>Brend ariza</b> — avtomobilni brendlash uchun murojaat.\n"
+        "⚡ <b>Spectre Energyga ariza</b> — avtomobil ma’lumotlarini yuborish.\n"
         "📞 Aloqa ma’lumotlari va 📍 ofis manzili ham quyidagi menyuda."
     )
     await update.effective_message.reply_text(
