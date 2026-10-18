@@ -30,7 +30,6 @@ from bot.regions import (
     get_region,
     region_name,
 )
-from bot.application_ids import application_code
 from bot.vehicle_numbers import normalize_plate
 from bot.presentation import contact_button, menu_button
 
@@ -267,10 +266,8 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_link = f'<a href="tg://user?id={user.id}">{h(display)}</a>'
     branch_title = _kind_title(kind)
     branch_icon = "🎨"
-    code = application_code(data)
     text = (
         f"{branch_icon} <b>{h(region_name(region))} — YANGI {h(branch_title.upper())} ARIZA</b>\n\n"
-        f"Ariza: <code>{h(code)}</code>\n\n"
         f"👤 Foydalanuvchi: {user_link}\n"
         f"🪪 FIO: {h(data['b_name'])}\n"
         f"📞 Tel: {h(data['b_phone'])}\n"
@@ -299,7 +296,6 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return BRAND_PLATE
 
     await update.message.reply_text(
-        f"Ariza kodi: `{code}`\n\n"
         "✅ *Arizangiz qabul qilindi*\n\n"
         f"{region_name(region)} — {_kind_title(kind)} arizangiz qabul qilindi. "
         "Tez orada operatorlarimiz bog‘lanadi.",
