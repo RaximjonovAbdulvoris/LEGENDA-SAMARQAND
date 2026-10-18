@@ -134,6 +134,33 @@ def licence_identity(words):
         return result
 
     ones, twos = numbered(1), numbered(2)
+    if not ones and len(twos) == 1:
+        # A tiny printed '1.' can disappear while the surname remains clear.
+        # Recover only inside the numbered identity block, aligned above 2.
+        second, attached = twos[0]
+        given_rows = [(w, clean_name(w.text)) for w in words
+                      if w.confidence >= 90 and w.left > second.left
+                      and abs(w.top + w.height / 2 - second.top - second.height / 2)
+                      < max(w.height, second.height) * .55
+                      and 0 <= w.left - second.left - second.width < max(w.height, second.height) * 2.5
+                      and clean_name(w.text)]
+        if attached:
+            given_rows = [(second, attached)]
+        thirds = [w for w in words if w.confidence >= 90
+                  and re.fullmatch(r'3[.)]?\s*.+?\s*' + PRINTED_DATE, w.text.strip())
+                  and 0 < w.top - second.top < max(w.height, second.height) * 4
+                  and abs(w.left - second.left) < max(w.height, second.height) * 1.4]
+        if len(given_rows) != 1 or len(thirds) != 1:
+            return None
+        given_box, given = given_rows[0]
+        candidates = [(w, clean_name(w.text)) for w in words
+                      if w.confidence >= 95 and clean_name(w.text)
+                      and .6 * max(w.height, given_box.height) < given_box.top - w.top
+                      < 1.8 * max(w.height, given_box.height)
+                      and abs(w.left - given_box.left) < max(w.height, given_box.height) * .5]
+        if len(candidates) != 1:
+            return None
+        return candidates[0][1], given
     if len(ones) != 1 or len(twos) != 1:
         return None
     first, first_attached = ones[0]

@@ -14,6 +14,19 @@ def row(text, x=300, y=300, confidence=99, width=200, height=30):
 
 
 class NeuralOCRTests(unittest.IsolatedAsyncioTestCase):
+    def test_missing_field_one_keeps_clear_aligned_identity(self):
+        from bot.neural_ocr_worker import licence_identity
+        words = [row('EXAMPLE', x=320, y=628, width=114, height=24, confidence=98),
+                 row('2', x=292, y=659, width=14, height=14),
+                 row('PERSON', x=320, y=654, width=101, height=24),
+                 row("PARENT O'GLI", x=324, y=682, height=24),
+                 row('3TESTCITY 29.05.1994', x=289, y=708, height=26)]
+        self.assertEqual(licence_identity(words), ('EXAMPLE', 'PERSON'))
+        self.assertIsNone(licence_identity(words[:-1]))
+        self.assertIsNone(licence_identity(words + [row('CONFLICT', x=321, y=629, height=24)]))
+        words[0] = row('EXAMPLE', x=700, y=628, height=24)
+        self.assertIsNone(licence_identity(words))
+
     def test_split_birth_label_and_dropped_date_punctuation(self):
         values = fields_from_rows([
             row('3.', x=430, y=265, width=30, height=23, confidence=89),
