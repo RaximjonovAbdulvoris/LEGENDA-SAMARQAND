@@ -43,6 +43,9 @@ class Query:
 
 
 class Bot:
+    async def get_chat_member(self, chat_id, user_id):
+        return type("Member", (), {"status": "administrator"})()
+
     def __init__(self):
         self.groups = []
         self.photos = []
@@ -58,7 +61,7 @@ class Bot:
         count = len(kwargs["media"])
         if self.malformed_group == index:
             return [Message(1000, "wrong"), Message(1001, "different")][:count]
-        return [Message(1000 + i, f"album-{index}") for i in range(count)]
+        return [Message(1000 + index*100 + i, f"album-{index}") for i in range(count)]
 
     async def send_photo(self, **kwargs):
         self.photos.append(kwargs)

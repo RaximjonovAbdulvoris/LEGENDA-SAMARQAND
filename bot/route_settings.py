@@ -10,6 +10,8 @@ def regional_keys(prefix):
         **{f"driver{i}": f"{prefix}_DRIVER_GROUP_{i}" for i in range(1, 5)},
         "brand": f"{prefix}_BRAND_GROUP",
         "archive": f"{prefix}_ARCHIVE_GROUP",
+        "incomplete": f"{prefix}_INCOMPLETE_GROUP",
+        "otherpark": f"{prefix}_OTHER_PARK_GROUP",
     }
 
 TASHKENT_KEYS = regional_keys("TASHKENT")

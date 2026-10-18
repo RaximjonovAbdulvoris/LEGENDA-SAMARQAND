@@ -1,4 +1,5 @@
 import logging
+import re
 from html import escape as h
 
 from telegram import (
@@ -8,6 +9,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, NetworkError
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -28,12 +30,14 @@ from bot.regions import (
     get_region,
     region_name,
 )
+from bot.application_ids import application_code
+from bot.presentation import contact_button, menu_button
 
 logger = logging.getLogger(__name__)
 
 BRAND_WARN, BRAND_NAME, BRAND_PHONE, BRAND_MODEL, BRAND_YEAR, BRAND_COLOR, BRAND_PLATE = range(100, 107)
 CONTINUE_BTN = "✅ Davom etish"
-CONTINUE_KB = ReplyKeyboardMarkup([[CONTINUE_BTN]], resize_keyboard=True, one_time_keyboard=True)
+CONTINUE_KB = ReplyKeyboardMarkup([[menu_button(CONTINUE_BTN, icon='READY')]], resize_keyboard=True, one_time_keyboard=True)
 
 WARN_TEXT = (
     "⚠️ *DIQQAT! BRENDLASH SHARTLARI:*\n\n"
@@ -151,7 +155,7 @@ async def brand_get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return BRAND_NAME
     context.user_data["b_name"] = name
     keyboard = ReplyKeyboardMarkup(
-        [[KeyboardButton("📞 Raqamni jo‘natish", request_contact=True)]],
+        [[contact_button("Raqamni jo‘natish")]],
         resize_keyboard=True, one_time_keyboard=True,
     )
     await update.message.reply_text(
@@ -159,12 +163,16 @@ async def brand_get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "📞 Telefon raqamingizni jo‘nating:",
         parse_mode="Markdown", reply_markup=keyboard,
     )
+    context.user_data['_brand_state'] = BRAND_PHONE
     return BRAND_PHONE
 
 
 async def brand_get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     phone = update.message.contact.phone_number if update.message.contact else (update.message.text or "").strip()
-    if len(phone) < 7 or not any(char.isdigit() for char in phone):
+    phone = re.sub(r'\D', '', phone)
+    if len(phone) == 9:
+        phone = '998' + phone
+    if not re.fullmatch(r'998[0-9]{9}', phone):
         await update.message.reply_text("❗ To‘g‘ri telefon raqamini kiriting (masalan: +998901234567):")
         return BRAND_PHONE
     context.user_data["b_phone"] = phone
@@ -173,6 +181,7 @@ async def brand_get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "🚗 Mashinangizning *rusumini (modelini)* yozing:",
         parse_mode="Markdown", reply_markup=ReplyKeyboardRemove(),
     )
+    context.user_data['_brand_state'] = BRAND_MODEL
     return BRAND_MODEL
 
 
@@ -219,6 +228,9 @@ async def brand_get_color(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if context.user_data.get('_delivery_uncertain'):
+        await update.message.reply_text('Oldingi ariza yetib borgani tasdiqlanmadi. Operator bilan bog‘laning yoki /cancel bosing.')
+        return BRAND_PLATE
     plate = (update.message.text or "").strip().upper()
     if len(plate) < 5 or not any(char.isalnum() for char in plate):
         await update.message.reply_text("❗ To‘g‘ri davlat raqamini kiriting (masalan: 01A123BC):")
@@ -254,8 +266,10 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_link = f'<a href="tg://user?id={user.id}">{h(display)}</a>'
     branch_title = _kind_title(kind)
     branch_icon = "🎨"
+    code = application_code(data)
     text = (
         f"{branch_icon} <b>{h(region_name(region))} — YANGI {h(branch_title.upper())} ARIZA</b>\n\n"
+        f"Ariza: <code>{h(code)}</code>\n\n"
         f"👤 Foydalanuvchi: {user_link}\n"
         f"🪪 FIO: {h(data['b_name'])}\n"
         f"📞 Tel: {h(data['b_phone'])}\n"
@@ -273,17 +287,19 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         # Brand applications stay in their destination groups as plain messages.
     except Exception as error:
-        logger.exception("brand: arizani guruhga yuborib bo‘lmadi: %s", error)
-        clear_application(context)
+        logger.warning("Brand submission failed (%s)", type(error).__name__)
+        if isinstance(error, NetworkError) and not isinstance(error, BadRequest):
+            context.user_data['_delivery_uncertain'] = True
         await update.message.reply_text(
-            "⚠️ Arizani yuborishda texnik xatolik yuz berdi. "
-            "Iltimos, birozdan keyin qayta urinib ko‘ring.",
+            "⚠️ Ariza yuborilgani tasdiqlanmadi. Ma’lumotlar saqlandi. "
+            "Aloqa uzilgan bo‘lsa, qayta yuborishdan oldin operator bilan bog‘laning.",
             reply_markup=_regional_keyboard(context),
         )
-        return ConversationHandler.END
+        return BRAND_PLATE
 
     await update.message.reply_text(
-        "🎉 *Tabriklaymiz!*\n\n"
+        f"Ariza kodi: `{code}`\n\n"
+        "✅ *Arizangiz qabul qilindi*\n\n"
         f"{region_name(region)} — {_kind_title(kind)} arizangiz qabul qilindi. "
         "Tez orada operatorlarimiz bog‘lanadi.",
         parse_mode="Markdown", reply_markup=_regional_keyboard(context),
@@ -300,7 +316,9 @@ async def wrong_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 def _text_state(handler, state, accepted=None):
     async def tracked(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["_brand_state"] = state
-        return await handler(update, context)
+        next_state = await handler(update, context)
+        context.user_data['_brand_state'] = next_state
+        return next_state
     async def wrong(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["_brand_state"] = state
         return await wrong_text(update, context)

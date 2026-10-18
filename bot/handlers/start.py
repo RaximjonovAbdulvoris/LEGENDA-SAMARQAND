@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
+from bot.presentation import menu_button, button, premium_markup
 
 from bot.regions import (
     ANDIJON, TASHKENT, REGION_NAMES, clear_application, get_region, region_name,
@@ -33,8 +34,11 @@ TASHKENT_OFFICE_TEXT = (
 TASHKENT_OFFICE_KEYBOARD = None
 
 def main_keyboard(region: str) -> ReplyKeyboardMarkup:
-    rows = [[MENU_DRIVER], [MENU_BRAND],
-            [MENU_CONTACT], [MENU_OFFICE], [MENU_REGION]]
+    rows = [[menu_button(MENU_DRIVER, icon='DRIVER')],
+            [menu_button(MENU_BRAND, icon='BRAND')],
+            [menu_button(MENU_CONTACT, icon='CONTACT')],
+            [menu_button(MENU_OFFICE, icon='LOCATION')],
+            [menu_button(MENU_REGION, icon='LOCATION')]]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
@@ -69,9 +73,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     nonce = uuid4().hex[:10]
     context.user_data["region_choice_nonce"] = nonce
     await update.effective_message.reply_text(
-        "• WB LEGENDA TAXI • xush kelibsiz\n\n"
-        "“WB LEGENDA TAXI” ga ulanish va avtomobilni brendlash uchun shu botga ariza qoldiring!\n\n"
-        "Avval ishlamoqchi bo’lgan shahringizni tanlang!",
+        "<b>WB LEGENDA TAXI</b>\n"
+        "Haydovchilar uchun ariza markazi\n\n"
+        "Takso parkka ulanish yoki avtomobilni brendlash uchun ariza qoldiring.\n"
+        "Arizangiz tanlangan hudud operatorlariga yuboriladi.\n\n"
+        "Ishlamoqchi bo‘lgan shahringizni tanlang:",
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove(),
     )
@@ -84,7 +90,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def _region_choices(nonce: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(name, callback_data=f"region:pick:{region}:{nonce}")]
+        [button(name, action=f"region:pick:{region}:{nonce}", icon='LOCATION')]
         for region, name in REGION_NAMES.items()
     ])
 
@@ -127,8 +133,8 @@ async def on_region_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "Tanlovingizni tasdiqlaysizmi?",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"region:confirm:{region}:{nonce}")],
-                [InlineKeyboardButton("⬅️ Ortga", callback_data=f"region:back:{region}:{nonce}")],
+                [button("✅ Tasdiqlash", action=f"region:confirm:{region}:{nonce}", icon='READY', style='success')],
+                [button("⬅️ Ortga", action=f"region:back:{region}:{nonce}")],
             ]),
         )
     elif action == "back":

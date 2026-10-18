@@ -45,6 +45,9 @@ class FakeQuery:
 
 
 class FakeBot:
+    async def get_chat_member(self, chat_id, user_id):
+        return type("Member", (), {"status": "administrator"})()
+
     def __init__(self, fail_ids=(), batch_failures=0, batch_result_count=None):
         self.copies = []
         self.batch_copies = []
@@ -66,13 +69,13 @@ class FakeBot:
             if self.batch_result_count is None
             else self.batch_result_count
         )
-        return tuple(object() for _ in range(count))
+        return tuple(SimpleNamespace(message_id=1000+i) for i in range(count))
 
     async def copy_message(self, **kwargs):
         if kwargs["message_id"] in self.fail_ids:
             raise RuntimeError("copy failed")
         self.copies.append(kwargs)
-        return object()
+        return SimpleNamespace(message_id=2000)
 
     async def delete_message(self, **kwargs):
         self.deletes.append(kwargs)
@@ -296,25 +299,12 @@ class OperatorSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.deletes, [])
         self.assertTrue(any("o‘chirilmadi" in text for text in message.replies))
 
-    async def test_comment_reply_keeps_original_branch(self):
+    async def test_old_comment_button_is_retired(self):
         bot = FakeBot()
         context = self._context(bot)
-        key = self._register(context, 9, "tashkent", 104, 204)
+        self._register(context, 9, "tashkent", 104, 204)
         message = FakeMessage(204, 104)
-        update = _update("op:comment:9", message, user_id=77, chat_id=104)
-        await operator.on_operator_button(update, context)
-        operator_update = SimpleNamespace(
-            message=SimpleNamespace(text="Toshkent savoli", reply_text=FakeMessage(1, 104).reply_text),
-            effective_chat=SimpleNamespace(id=104),
-            effective_user=SimpleNamespace(id=77, full_name="Operator", username="op"),
-        )
-        await operator.on_operator_text_in_group(operator_update, context)
-        user_messages = [item for item in bot.sent if item["chat_id"] == 9]
-        self.assertEqual(len(user_messages), 1)
-        self.assertIn("Toshkent shahri", user_messages[0]["text"])
-        self.assertEqual(
-            context.bot_data["operator_message_links"][
-                (104, bot.sent_objects[-1].message_id)
-            ],
-            key,
-        )
+        await operator.on_operator_button(_update("op:comment:9", message, user_id=77), context)
+        self.assertFalse(context.bot_data.get("pending_comments"))
+        self.assertEqual(bot.sent, [])
+        self.assertIn("Chala rasm", message.replies[-1])

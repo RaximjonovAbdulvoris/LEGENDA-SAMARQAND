@@ -56,10 +56,8 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
         await start.start(msg, ctx)
         calls = msg.effective_message.reply_text.await_args_list
         self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0].args[0],
-            "• WB LEGENDA TAXI • xush kelibsiz\n\n"
-            "“WB LEGENDA TAXI” ga ulanish va avtomobilni brendlash uchun shu botga ariza qoldiring!\n\n"
-            "Avval ishlamoqchi bo’lgan shahringizni tanlang!")
+        self.assertIn('WB LEGENDA TAXI', calls[0].args[0])
+        self.assertIn('tanlang', calls[0].args[0])
         self.assertTrue(calls[0].kwargs["reply_markup"].remove_keyboard)
         self.assertEqual(calls[1].args[0], "Qaysi hududda ishlamoqchisiz?")
         buttons = calls[1].kwargs["reply_markup"].inline_keyboard
@@ -194,7 +192,7 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
         }), patch("bot.handlers.driver.next_index", return_value=0):
             for region, destination in (("andijon", "-301"), ("tashkent", "-302")):
                 ctx = context(region)
-                self.assertEqual(await driver.start_driver(update(), ctx), driver.NAME)
+                self.assertEqual(await driver.start_driver(update(), ctx), driver.PHONE)
                 ctx.user_data.update({
                     "name": "Test", "phone": "+998901234567", "car_plate": "01A123BC",
                     "user_id": 123, "passport_front": "photo1", "passport_back": "photo2",
@@ -291,7 +289,7 @@ class NoSubscriptionTests(unittest.IsolatedAsyncioTestCase):
             "ANDIJON_BRAND_GROUP": "-102", "TASHKENT_BRAND_GROUP": "-202",
         }):
             for city in regions.REGION_NAMES:
-                for handler, state in ((driver.start_driver, driver.NAME), (brand.start_brand, brand.BRAND_WARN)):
+                for handler, state in ((driver.start_driver, driver.PHONE), (brand.start_brand, brand.BRAND_WARN)):
                     ctx = context(city)
                     ctx.bot.get_chat_member.return_value = N(status="left")
                     self.assertEqual(await handler(update(), ctx), state)

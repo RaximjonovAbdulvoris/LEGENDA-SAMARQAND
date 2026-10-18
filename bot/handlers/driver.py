@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from html import escape as h
 
 from telegram import (
@@ -10,6 +11,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, NetworkError
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -20,6 +22,11 @@ from telegram.ext import (
 )
 
 from bot.config import template_path
+from bot.document_ocr import prepare_document_summary, SOURCES, enabled
+from bot.background_ocr import PENDING_TEXT, schedule_ocr
+from bot.driver_card import details as driver_details
+from bot.application_ids import application_code
+from bot.presentation import contact_button, menu_button, premium_markup, send_brand_sticker, send_warning_voice, with_keyboard_fallback
 from bot.counter import next_index
 from bot.handlers.operator import build_operator_keyboard, register_application
 from bot.handlers.start import MENU_DRIVER, main_keyboard, require_region, cancel
@@ -29,6 +36,7 @@ from bot.regions import (
     get_region,
     region_name,
 )
+from bot.subscription import require_subscription, subscription_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +60,13 @@ _pending_car_progress_tasks: dict[int, asyncio.Task] = {}
     CAR_PLATE,
 ) = range(13)
 
+JOIN_GROUP = 13
+REQUIRED_GROUP = "@WBLEGENDA_KANAL"
+JOIN_KEYBOARD = subscription_keyboard("driver:check_membership")
 
 CONTINUE_BTN = "✅ Davom etish"
 CONTINUE_KB = ReplyKeyboardMarkup(
-    [[CONTINUE_BTN]], resize_keyboard=True, one_time_keyboard=True
+    [[menu_button(CONTINUE_BTN, icon="READY")]], resize_keyboard=True, one_time_keyboard=True
 )
 
 
@@ -140,11 +151,12 @@ async def start_driver(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         clear_application(context)
         return ConversationHandler.END
-    return await begin_form(update, context)
+    return await check_membership(update, context)
 
 
-async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Validate the selected city and destination before collecting data.
+async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Membership may be checked long after the menu was opened.  Revalidate
+    # the branch and destination before accepting the first form answer.
     if not await _require_region(update, context):
         return ConversationHandler.END
     region = _region_required(context)
@@ -157,18 +169,23 @@ async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         clear_application(context)
         return ConversationHandler.END
+    if not await require_subscription(
+        update, context, callback_data="driver:check_membership"
+    ):
+        return JOIN_GROUP
 
     # Keep the confirmed region while discarding any stale form data.
     clear_application(context)
     context.user_data["_application_kind"] = "driver"
     context.user_data["_application_region"] = region
     await update.effective_message.reply_text(
-        f"📝 *{region_name(region)} — haydovchilik arizasi*\n\n"
-        "Iltimos, *ism va familiyangizni* yozing:",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove(),
+        f"{premium_markup('APPLICATION', '📝')} <b>{region_name(region)} — haydovchilik arizasi</b>\n\n"
+        "Ism va familiyangiz pravangizdan avtomatik o‘qiladi.\n"
+        "Iltimos, <b>telefon raqamingizni</b> yuboring:",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardMarkup([[contact_button()]], resize_keyboard=True, one_time_keyboard=True),
     )
-    return NAME
+    return PHONE
 
 
 # -------------------- 1. name --------------------
@@ -181,7 +198,7 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return NAME
     context.user_data["name"] = name
     kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("📞 Raqamni jo'natish", request_contact=True)]],
+        [[contact_button()]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
@@ -207,22 +224,28 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         phone = update.message.contact.phone_number
     elif update.message.text:
         phone = update.message.text.strip()
-    if not phone or len(phone) < 7 or not any(c.isdigit() for c in phone):
+    digits = re.sub(r'\D', '', phone or '')
+    if len(digits) == 9:
+        digits = '998' + digits
+    if not re.fullmatch(r'998[0-9]{9}', digits):
         await update.message.reply_text(
             "❗ Iltimos, telefon raqamingizni knopka orqali jo'nating "
-            "yoki to'g'ri raqam kiriting (masalan: +998901234567):"
+            "yoki to'g'ri raqam kiriting (masalan: 998901234567):"
         )
         return PHONE
-    context.user_data["phone"] = phone
+    context.user_data["phone"] = digits
 
     await update.message.reply_text(
         "⚠️ *Diqqat!*\n\n"
         "Endi sizdan hujjatlaringizning *originalini rasmga olib* jo'natishingiz so'raladi.\n\n"
         "❌ Soliqdan olingan skrinshot QABUL QILINMAYDI!\n\n"
-        "Davom etish uchun pastdagi knopkani bosing.",
+        "Hujjatlardagi ma’lumotlar arizani ko‘rib chiqish uchun operatorlarga va "
+        "avtomatik o‘qish uchun bizning serverimizdagi mahalliy AI orqali qayta ishlanadi. "
+        "Davom etish orqali ushbu ishlov berishga rozilik bildirasiz.",
         parse_mode="Markdown",
         reply_markup=CONTINUE_KB,
     )
+    await send_warning_voice(update.message)
     return WARN_DOCS
 
 
@@ -238,7 +261,7 @@ async def phone_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def warn_docs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await _send_prompt(
         update, context,
-        "📄 1/12 — *Passport (old tarafi)* rasmini jo'nating:",
+        "📄 1/11 — *Passport (old tarafi)* rasmini jo'nating:",
         "passport_front",
         reply_markup=ReplyKeyboardRemove(),
     )
@@ -279,37 +302,38 @@ def _make_photo_step(field: str, next_text: str,
 
 get_passport_front, _wrong_pf = _make_photo_step(
     "passport_front",
-    "📄 2/12 — *Passport (orqa tarafi)* rasmini jo'nating:",
-    "passport_back", PASSPORT_FRONT, PASSPORT_BACK,
+    "🪪 2/11 — *Haydovchilik guvohnomasi (old tarafi)* rasmini jo'nating:",
+    "license_front", PASSPORT_FRONT, LICENSE_FRONT,
 )
+# Keep the old state so applications already waiting for the back photo can finish.
 get_passport_back, _wrong_pb = _make_photo_step(
     "passport_back",
-    "🪪 3/12 — *Haydovchilik guvohnomasi (old tarafi)* rasmini jo'nating:",
+    "🪪 2/11 — *Haydovchilik guvohnomasi (old tarafi)* rasmini jo'nating:",
     "license_front", PASSPORT_BACK, LICENSE_FRONT,
 )
 get_license_front, _wrong_lf = _make_photo_step(
     "license_front",
-    "🪪 4/12 — *Haydovchilik guvohnomasi (orqa tarafi)* rasmini jo'nating:",
+    "🪪 3/11 — *Haydovchilik guvohnomasi (orqa tarafi)* rasmini jo'nating:",
     "license_back", LICENSE_FRONT, LICENSE_BACK,
 )
 get_license_back, _wrong_lb = _make_photo_step(
     "license_back",
-    "🚘 5/12 — *Texnik passport (old tarafi)* rasmini jo'nating:",
+    "🚘 4/11 — *Texnik passport (old tarafi)* rasmini jo'nating:",
     "tech_front", LICENSE_BACK, TECH_FRONT,
 )
 get_tech_front, _wrong_tf = _make_photo_step(
     "tech_front",
-    "🚘 6/12 — *Texnik passport (orqa tarafi)* rasmini jo'nating:",
+    "🚘 5/11 — *Texnik passport (orqa tarafi)* rasmini jo'nating:",
     "tech_back", TECH_FRONT, TECH_BACK,
 )
 get_tech_back, _wrong_tb = _make_photo_step(
     "tech_back",
-    "🤳 7/12 — *Selfie* rasmingizni jo'nating:",
+    "🤳 6/11 — *Selfie* rasmingizni jo'nating:",
     "selfie", TECH_BACK, SELFIE,
 )
 get_selfie, _wrong_se = _make_photo_step(
     "selfie",
-    "📜 8/12 — *Litsenziya* rasmini jo'nating:",
+    "📜 7/11 — *Litsenziya* rasmini jo'nating:",
     "litsenziya", SELFIE, LITSENZIYA,
 )
 
@@ -328,36 +352,50 @@ async def _send_car_photo_prompt(update: Update, context: ContextTypes.DEFAULT_T
     """Send 4 car template images as a media group with instruction caption on first image."""
     car_names = ["car_front", "car_back", "car_left", "car_right"]
     instruction = (
-        "🚗 *9-12/12 — Mashina rasmlari*\n\n"
+        "🚗 *8-11/11 — Mashina rasmlari*\n\n"
         "Mashinangizning *4 ta tomonidan* rasmga olib jo'nating:\n"
         "1️⃣ Old • 2️⃣ Orqa • 3️⃣ Chap • 4️⃣ O'ng\n\n"
         "Hammasini birin-ketin (4 ta rasm) jo'natishingiz kerak."
     )
 
     cache = context.bot_data.setdefault("template_file_ids", {})
+    paths = [template_path(name) for name in car_names]
+    if paths[0] and len(set(paths)) == 1 and 'car_sides.' in paths[0]:
+        try:
+            if cache.get('car_front'):
+                await update.message.reply_photo(photo=cache['car_front'], caption=instruction,
+                                                 parse_mode='Markdown')
+            else:
+                with open(paths[0], 'rb') as original:
+                    await update.message.reply_photo(photo=original, caption=instruction,
+                                                     parse_mode='Markdown')
+        except Exception as error:
+            logger.warning('car template yuborilmadi: %s', type(error).__name__)
+            await update.message.reply_text(instruction, parse_mode='Markdown')
+        return
     media = []
     media_names = []
     opened_files = []
 
     try:
         for i, name in enumerate(car_names):
-            caption = instruction if i == 0 else None
-            parse_mode = "Markdown" if i == 0 else None
+            caption = instruction if not media else None
+            parse_mode = "Markdown" if not media else None
             file_id = cache.get(name)
             if file_id:
-                media_names.append(name)
                 media.append(
                     InputMediaPhoto(media=file_id, caption=caption, parse_mode=parse_mode)
                 )
+                media_names.append(name)
             else:
                 path = template_path(name)
                 if path:
-                    media_names.append(name)
                     f = open(path, "rb")
                     opened_files.append((name, f))
                     media.append(
                         InputMediaPhoto(media=f, caption=caption, parse_mode=parse_mode)
                     )
+                    media_names.append(name)
 
         if media:
             sent_msgs = await update.message.reply_media_group(media=media)
@@ -486,6 +524,12 @@ async def car_photos_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 # -------------------- 13. car plate -> finish --------------------
 async def get_car_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if context.user_data.get("_delivery_uncertain"):
+        await update.message.reply_text(
+            "⚠️ Oldingi yuborish natijasi noma’lum. Takroriy ariza yubormaslik uchun "
+            "operator bilan bog‘laning. Ma’lumotlaringiz saqlandi."
+        )
+        return CAR_PLATE
     plate = (update.message.text or "").strip().upper()
     if len(plate) < 5 or not any(c.isalnum() for c in plate):
         await update.message.reply_text(
@@ -511,24 +555,35 @@ async def get_car_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     context.user_data["user_username"] = user.username or ""
     context.user_data["user_full_name"] = user.full_name or ""
 
+    await update.message.reply_text(
+        "⏳ Arizangiz operatorga yuborilmoqda. AI tekshiruvi keyin davom etadi."
+    )
     try:
         await _send_to_driver_group(context)
     except Exception as e:
         logger.exception("driver: send_to_driver_group failed: %s", e)
-        clear_application(context)
+        if isinstance(e, NetworkError) and not isinstance(e, BadRequest):
+            context.user_data["_delivery_uncertain"] = True
+            await update.message.reply_text(
+                "⚠️ Aloqa uzildi; ariza yetib borgani tasdiqlanmadi. "
+                "Ma’lumotlar saqlandi. Qayta ariza yuborishdan oldin operator bilan bog‘laning."
+            )
+            return CAR_PLATE
         await update.message.reply_text(
-            "⚠️ Arizani yuborish vaqtida texnik xatolik yuz berdi. "
-            "Iltimos, birozdan keyin qayta urinib ko‘ring.",
-            reply_markup=_regional_keyboard(context),
+            "⚠️ Ariza to‘liq yuborilmadi. Ma’lumotlar saqlandi. "
+            "Qayta urinish uchun davlat raqamini yana yuboring yoki /cancel bosing."
         )
-        return ConversationHandler.END
+        return CAR_PLATE
 
+    await send_brand_sticker(update.message, 'SUCCESS')
     await update.message.reply_text(
-        "🎉 *Tabriklaymiz!*\n\n"
-        f"{region_name(_region_required(context))} haydovchilik arizangiz qabul qilindi. "
-        "Tez orada operatorlarimiz siz bilan bog‘lanadi.",
-        parse_mode="Markdown",
-        reply_markup=_regional_keyboard(context),
+        "✅ <b>Arizangiz qabul qilindi</b>\n\n"
+        f"Ariza kodi: <code>{h(context.user_data['_application_code'])}</code>\n"
+        f"Hudud: {h(region_name(_region_required(context)))}\n\n"
+        "Hujjatlaringiz operatorga yuborildi. Natija yoki qo‘shimcha ma’lumot "
+        "kerak bo‘lsa, shu bot orqali xabar beramiz.\n\n"
+        "Aloqa: +998 78 150-50-50",
+        parse_mode="HTML", reply_markup=_regional_keyboard(context),
     )
     clear_application(context)
     return ConversationHandler.END
@@ -555,8 +610,11 @@ async def _send_to_driver_group(context: ContextTypes.DEFAULT_TYPE):
     # user is completing the form, and never fall back to another region.
     if not groups:
         raise RuntimeError(f"{region_name(region)} driver destination is missing")
-    idx = next_index(f"driver_group_rr:{region}", len(groups))
-    chat_id = groups[idx]
+    dispatch = d.setdefault("_dispatch", {})
+    if "chat_id" not in dispatch:
+        dispatch["index"] = next_index(f"driver_group_rr:{region}", len(groups))
+        dispatch["chat_id"] = groups[dispatch["index"]]
+    idx, chat_id = dispatch["index"], dispatch["chat_id"]
 
     user_id = d.get("user_id")
     username = d.get("user_username", "")
@@ -566,14 +624,18 @@ async def _send_to_driver_group(context: ContextTypes.DEFAULT_TYPE):
         f'<a href="tg://user?id={user_id}">{h(display)}</a>' if user_id else h(display)
     )
 
-    caption_main = (
-        f"📝 <b>{h(region_name(region))} — YANGI ARIZA</b>\n\n"
-        f"👤 Foydalanuvchi: {user_link_html}\n"
-        f"🪪 Ism familiya: {h(d.get('name', '-'))}\n"
-        f"📞 Tel: {h(d.get('phone', '-'))}\n"
-        f"🚗 Mashina raqami: {h(d.get('car_plate', '-'))}"
+    code = application_code(d)
+    initial = {'status': 'pending', 'values': {}}
+
+    prefix = (
+        f"<b>WB LEGENDA · HAYDOVCHI ARIZASI</b>\n"
+        f"Ariza: <code>{code}</code> · {h(region_name(region))}\n\n"
+        f"<b>Arizachi</b>\n{user_link_html}\n\n"
     )
-    caption_selfie = f"🤳 {h(d.get('name', '-'))} — selfie va litsenziya"
+    suffix = "\n\n<b>Operator boshqaruvi</b>\nQuyidagi amallardan birini tanlang."
+    details = prefix + driver_details(initial, d.get('phone'), d.get('car_plate')) + suffix
+    caption_main = f"📎 <b>{code}</b> · Hujjatlar va avtomobil · 1/2"
+    caption_selfie = f"📎 <b>{code}</b> · Selfie va litsenziya · 2/2"
 
     main_album_ids = [
         d.get("passport_front"),
@@ -591,10 +653,10 @@ async def _send_to_driver_group(context: ContextTypes.DEFAULT_TYPE):
     # photo_msg_ids retain source deletion compatibility; media_albums below
     # retain reusable file ids, captions, and the two album boundaries.
     # kb_msg_id is copied separately without its inline keyboard.
-    photo_msg_ids: list[int] = []
-    media_albums: list[dict] = []
+    photo_msg_ids = dispatch.setdefault("photo_msg_ids", [])
+    media_albums = dispatch.setdefault("media_albums", [])
 
-    if main_album_ids:
+    if main_album_ids and not any(a["name"] == "main" for a in media_albums):
         main_media = [
             InputMediaPhoto(
                 media=fid,
@@ -621,7 +683,7 @@ async def _send_to_driver_group(context: ContextTypes.DEFAULT_TYPE):
             }
         )
 
-    if selfie_album_ids:
+    if selfie_album_ids and not any(a["name"] == "selfie" for a in media_albums):
         selfie_media = [
             InputMediaPhoto(
                 media=fid,
@@ -659,28 +721,41 @@ async def _send_to_driver_group(context: ContextTypes.DEFAULT_TYPE):
             "username": username,
         }
 
-        kb_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=(
-                "👇 Ariza bo'yicha amal tanlang:\n"
-                f"👤 Arizachi: {user_link_html}"
-            ),
-            parse_mode=ParseMode.HTML,
-            reply_markup=build_operator_keyboard(user_id),
-        )
+        if "kb_msg_id" not in dispatch:
+            kb_msg = await with_keyboard_fallback(context.bot.send_message,
+                chat_id=chat_id,
+                text=details,
+                parse_mode=ParseMode.HTML,
+                reply_markup=build_operator_keyboard(user_id),
+            )
+            dispatch["kb_msg_id"] = kb_msg.message_id
 
-        register_application(
+        record_key = register_application(
             context,
             applicant_id=user_id,
             region=region,
             kind="driver",
             group_chat_id=chat_id,
             photo_msg_ids=photo_msg_ids,
-            kb_msg_id=kb_msg.message_id,
+            kb_msg_id=dispatch["kb_msg_id"],
             applicant_name=d.get("name") or full_name or "Arizachi",
             username=username,
             media_albums=media_albums,
+            code=code,
         )
+
+        if enabled():
+            record = context.bot_data['applications'][record_key]
+            record.update(ocr_status='pending', ocr_prefix=prefix, ocr_suffix=suffix,
+                          ocr_card_data={'phone': d.get('phone'), 'plate': d.get('car_plate')},
+                          ocr_input={**{source: d[source] for source in SOURCES if d.get(source)},
+                                     'car_plate': d.get('car_plate', '')})
+            application = getattr(context, 'application', None)
+            # Durable inputs belong to this application, never the user's next form.
+            if application is not None:
+                from bot.queue_moves import checkpoint
+                await checkpoint(context)
+                schedule_ocr(application, code, user_id)
 
     logger.info("[driver] sent application to group #%s (%s)", idx + 1, chat_id)
 
@@ -694,15 +769,32 @@ def _photo_state(get_handler, wrong_handler):
     ]
 
 
+async def submission_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Do not allow /start or another form to erase a document batch being read.
+    if update.message:
+        await update.message.reply_text(
+            "⏳ Arizangiz hali tekshirilmoqda. Tayyor bo‘lgach xabar beramiz. "
+            "Hujjatlarni qayta yuborishingiz shart emas."
+        )
+    return ConversationHandler.WAITING
+
+
 def build_driver_conversation() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             MessageHandler(
-                filters.ChatType.PRIVATE & filters.Regex(f"^{MENU_DRIVER}$"),
+                filters.ChatType.PRIVATE & filters.Regex(r"^(?:(?:📝|🚕) )?Ulanish uchun Ariza$"),
                 start_driver,
             ),
         ],
         states={
+            ConversationHandler.WAITING: [MessageHandler(filters.ALL, submission_waiting)],
+            JOIN_GROUP: [
+                CallbackQueryHandler(
+                    check_membership, pattern=r"^driver:check_membership$",
+                ),
+                MessageHandler(~filters.COMMAND, check_membership),
+            ],
             NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_name),
                 MessageHandler(~filters.COMMAND, name_wrong),
@@ -713,7 +805,7 @@ def build_driver_conversation() -> ConversationHandler:
                 MessageHandler(~filters.COMMAND, phone_wrong),
             ],
             WARN_DOCS: [
-                MessageHandler(filters.Regex(f"^{CONTINUE_BTN}$"), warn_docs),
+                MessageHandler(filters.Regex(r"^(?:✅ )?Davom etish$"), warn_docs),
                 MessageHandler(~filters.COMMAND, warn_wrong),
             ],
             PASSPORT_FRONT: _photo_state(get_passport_front, _wrong_pf),
@@ -726,7 +818,7 @@ def build_driver_conversation() -> ConversationHandler:
             LITSENZIYA: _photo_state(get_litsenziya, litsenziya_wrong),
             CAR_PHOTOS: _photo_state(get_car_photos, car_photos_wrong),
             CAR_PLATE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_car_plate),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_car_plate, block=False),
                 MessageHandler(~filters.COMMAND, car_plate_wrong),
             ],
         },

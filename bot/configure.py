@@ -16,6 +16,8 @@ LABELS = {
     "driver4": "Haydovchi 4-guruh",
     "brand": "Brend guruhi",
     "archive": "Arxiv guruhi",
+    "incomplete": "Chala rasm guruhi (keyinroq sozlash mumkin)",
+    "otherpark": "Boshqa park guruhi (keyinroq sozlash mumkin)",
 }
 
 
@@ -114,10 +116,14 @@ def main(argv=None) -> int:
             print("Mavjud IDni saqlash uchun Enter bosing. Token kiritmang.")
             for name, key in keys.items():
                 current = destination(key)
+                if name in ('incomplete', 'otherpark'):
+                    continue
                 answer = input(f"{LABELS[name]} [{current or 'sozlanmagan'}]: ").strip()
                 changes[key] = answer or current
         # Validate the complete effective setup before saving any change.
         for name, key in keys.items():
+            if name in ('incomplete', 'otherpark') and not changes.get(key, destination(key)):
+                continue
             validate(key, changes.get(key, destination(key)))
         save_settings(changes)
         print(f"Saqlandi: {settings_path()}")
