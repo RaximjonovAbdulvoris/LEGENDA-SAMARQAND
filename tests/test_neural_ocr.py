@@ -81,6 +81,9 @@ class NeuralOCRTests(unittest.IsolatedAsyncioTestCase):
                  row('PERSON', x=460, y=203, height=28),
                  row('PATRONYMIC', x=465, y=230, height=30)]
         self.assertEqual(licence_identity(words), ('EXAMPLE', 'PERSON'))
+        words.pop(0)  # Some photos lose the small printed field-one label.
+        words.append(row('3.TESTCITY 01.02.1990', x=430, y=263, height=28))
+        self.assertEqual(licence_identity(words), ('EXAMPLE', 'PERSON'))
 
     def test_field_five_attached_or_separate_from_series(self):
         attached = fields_from_rows([row('5AF1834658')], 'license_front', 960, 1280)
@@ -118,6 +121,14 @@ class NeuralOCRTests(unittest.IsolatedAsyncioTestCase):
         values = fields_from_rows([row('ABC1234567', x=600, y=430)],
                                   'tech_back', 960, 1280)
         self.assertEqual(values['vehicle_registration'], 'ABC1234567')
+
+    def test_certificate_series_is_below_and_right_of_control_code(self):
+        from bot.neural_ocr_worker import certificate_serial_candidate
+        control = row('VL1234567', x=807, y=471, width=120, height=25)
+        series = row('ABC1234567', x=915, y=509, width=130, height=25)
+        self.assertIs(certificate_serial_candidate([control, series], 1280, 960), series)
+        self.assertIsNone(certificate_serial_candidate([control,
+            row('ABC1234567', x=830, y=475)], 1280, 960))
 
     def test_conflicts_low_confidence_and_uncertain_digits_remain_blank(self):
         for rows in [[row('5.AB1234567'), row('5.AB1234568')],
@@ -205,6 +216,24 @@ class LicenceIdentityTests(unittest.TestCase):
         engine = unittest.mock.Mock(side_effect=[first, first, second])
         values = read_document(engine, buffer.getvalue(), 'license_front')
         self.assertEqual(engine.call_count, 3)
+        self.assertEqual(values['pinfl'], '12345678901234')
+        self.assertIsNone(values['license_number'])
+
+    def test_normal_pass_recovers_missing_field_without_reintroducing_conflict(self):
+        from bot.neural_ocr_worker import read_document
+        from PIL import Image
+        from io import BytesIO
+        image = Image.new('RGB', (960, 1280), 'white')
+        buffer = BytesIO()
+        image.save(buffer, 'PNG')
+        box = [[300, 300], [650, 300], [650, 330], [300, 330]]
+        def detected(*items):
+            return ([(box, text, .99) for text in items], None)
+        initial = detected('5.AB1234567')
+        normal = detected('5.AB1234568', '4d12345678901234')
+        enhanced = detected('5.AB1234567')
+        engine = unittest.mock.Mock(side_effect=[initial, normal, enhanced])
+        values = read_document(engine, buffer.getvalue(), 'license_front')
         self.assertEqual(values['pinfl'], '12345678901234')
         self.assertIsNone(values['license_number'])
 

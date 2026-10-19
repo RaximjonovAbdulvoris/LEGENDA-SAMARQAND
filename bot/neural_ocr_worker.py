@@ -158,7 +158,8 @@ def licence_identity(words):
                       if w.confidence >= 90 and w.left > second.left
                       and abs(w.top + w.height / 2 - second.top - second.height / 2)
                       < max(w.height, second.height) * .55
-                      and 0 <= w.left - second.left - second.width < max(w.height, second.height) * 2.5
+                      and -second.width * .5 <= w.left - second.left - second.width
+                      < max(w.height, second.height) * 2.5
                       and clean_name(w.text)]
         if attached:
             given_rows = [(second, attached)]
@@ -270,6 +271,29 @@ def refine_registration(engine, image, words):
     return unanimous(readings)
 
 
+def certificate_serial_candidate(words, width, height):
+    """The printed certificate series sits below/right of the control code.
+
+    If that layout is not clear, leave the serial for an operator to check.
+    """
+    candidates = [w for w in words if w.confidence >= 90 and
+                  re.fullmatch(SERIAL, w.text.strip().upper()) and
+                  w.left >= .60 * width and w.top < .75 * height]
+    distinct = {normalize({'vehicle_registration': w.text})['vehicle_registration']
+                for w in candidates}
+    if len(distinct) == 1:
+        return candidates[0]
+    # Duplicate OCR passes may yield the same two printed codes. One can be
+    # selected only when every competing code is clearly above and to its left.
+    chosen = [w for w in candidates if all(
+        normalize({'vehicle_registration': other.text})['vehicle_registration'] ==
+        normalize({'vehicle_registration': w.text})['vehicle_registration'] or
+        (w.left - other.left > max(w.height, other.height) * 2 and
+         w.top - other.top > max(w.height, other.height) * .5)
+        for other in candidates)]
+    return chosen[0] if len({w.text for w in chosen}) == 1 and chosen else None
+
+
 def refine_birth(engine, image, word):
     import numpy as np
     boundary = int(word.left + .7 * word.width)
@@ -358,21 +382,34 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
         words.append(Word(text, confidence * 100, left, top,
             max(p[0] for p in box) - left, max(p[1] for p in box) - top))
     values = fields_from_rows(words, source, image.width, image.height)
+    conflicts = set()
+    normal_words = []
     if source == 'license_front':
         identity = licence_identity(words)
         values['surname'], values['given_name'] = identity or (None, None)
         values['full_name'] = ' '.join(identity) if identity else None
         values['patronymic'] = licence_patronymic(words)
-        if not identity or not values['patronymic']:
+        if not identity or not values['patronymic'] or any(not values.get(key) for key in
+                ('pinfl', 'birth_date', 'birth_place', 'license_number', 'license_expiry')):
             normal, _ = engine(np.array(image)[:, :, ::-1].copy())
             normal_words = []
             for box, text, confidence in normal or []:
                 left, top = min(p[0] for p in box), min(p[1] for p in box)
                 normal_words.append(Word(text, confidence * 100, left, top,
                     max(p[0] for p in box) - left, max(p[1] for p in box) - top))
+            normal_fields = fields_from_rows(normal_words, source, image.width, image.height)
+            for key, value in normal_fields.items():
+                if not value:
+                    continue
+                if values.get(key) and values[key] != value:
+                    values[key] = None
+                    conflicts.add(key)
+                elif key not in conflicts and not values.get(key):
+                    values[key] = value
             normal_identity = licence_identity(normal_words)
             if identity and normal_identity and identity != normal_identity:
                 values['surname'] = values['given_name'] = values['full_name'] = None
+                conflicts.update(('surname', 'given_name', 'full_name'))
             elif not identity:
                 identity = normal_identity
                 values['surname'], values['given_name'] = identity or (None, None)
@@ -380,8 +417,10 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
             other_patronymic = licence_patronymic(normal_words)
             if values['patronymic'] and other_patronymic and values['patronymic'] != other_patronymic:
                 values['patronymic'] = None
+                conflicts.add('patronymic')
             else:
-                values['patronymic'] = values['patronymic'] or other_patronymic
+                if 'patronymic' not in conflicts:
+                    values['patronymic'] = values['patronymic'] or other_patronymic
         if emit:
             emit(guard_identifiers(values)[0], source)
         anchors = [w for w in words if w.confidence >= 75 and re.match(r'^3[.)]', w.text)]
@@ -417,7 +456,8 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
             if alternate.get(key):
                 if values.get(key) and values[key] != alternate[key]:
                     values[key] = None  # Never silently prefer conflicting readings.
-                elif not values.get(key):
+                    conflicts.add(key)
+                elif key not in conflicts and not values.get(key):
                     values[key] = alternate[key]
     if source.startswith('tech_'):
         # A full-frame OCR confidence score alone is insufficient on holograms.
@@ -425,13 +465,10 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
         # The normal and contrast passes can detect the same serial in
         # different boxes. Deduplicate matching readings, but never resolve
         # conflicting readings by majority vote.
-        serial_words = [w for w in words + other if w.confidence >= 90 and
-                        re.fullmatch(SERIAL, w.text.strip().upper()) and
-                        w.left >= .60 * image.width and w.top < .75 * image.height]
-        distinct = {normalize({'vehicle_registration': w.text})['vehicle_registration']
-                    for w in serial_words}
-        confirmed = refine_registration(engine, image, serial_words[:1]) if len(distinct) == 1 else None
-        values['vehicle_registration'] = confirmed if confirmed == values.get('vehicle_registration') else None
+        candidate = certificate_serial_candidate(words + other, image.width, image.height)
+        confirmed = refine_registration(engine, image, [candidate]) if candidate else None
+        expected = normalize({'vehicle_registration': candidate.text})['vehicle_registration'] if candidate else None
+        values['vehicle_registration'] = confirmed if confirmed == expected else None
     values = guard_identifiers(values)[0]
     return (values, source) if return_kind else values
 
