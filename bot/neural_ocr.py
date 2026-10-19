@@ -78,7 +78,9 @@ async def extract_documents(bot, data):
     start = time.monotonic()
     # Drivers can put a document in the wrong upload step. Inspect every
     # document slot, then attribute fields to the detected document type.
-    order = ('license_front', 'passport_front', 'license_back', 'tech_back', 'tech_front')
+    # Read the two primary cards first. The worker streams completed results;
+    # if a later fallback image consumes the time budget, their fields survive.
+    order = ('license_front', 'tech_back', 'tech_front', 'passport_front', 'license_back')
     selected = [source for source in order if data.get(source)]
     async def download(source):
         file = await bot.get_file(data[source])

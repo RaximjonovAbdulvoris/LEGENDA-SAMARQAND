@@ -14,6 +14,15 @@ def row(text, x=300, y=300, confidence=99, width=200, height=30):
 
 
 class NeuralOCRTests(unittest.IsolatedAsyncioTestCase):
+    async def test_primary_cards_are_processed_before_fallback_images(self):
+        file = N(file_size=4, download_as_bytearray=AsyncMock(return_value=b'data'))
+        bot = N(get_file=AsyncMock(return_value=file))
+        with patch.object(neural, 'worker', AsyncMock(return_value=[])) as run:
+            await neural.extract_documents(bot, {key: key for key in (
+                'passport_front', 'license_back', 'tech_front', 'tech_back', 'license_front')})
+        self.assertEqual([item['source'] for item in run.await_args.args[0]],
+            ['license_front', 'tech_back', 'tech_front', 'passport_front', 'license_back'])
+
     def test_identifies_documents_by_multiple_printed_labels(self):
         from bot.neural_ocr_worker import document_kind
         boxes = [[0, 0], [100, 0], [100, 20], [0, 20]]
