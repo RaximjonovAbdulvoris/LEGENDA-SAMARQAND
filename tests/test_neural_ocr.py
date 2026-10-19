@@ -14,6 +14,17 @@ def row(text, x=300, y=300, confidence=99, width=200, height=30):
 
 
 class NeuralOCRTests(unittest.IsolatedAsyncioTestCase):
+    def test_patronymic_is_only_the_line_between_fields_two_and_three(self):
+        from bot.neural_ocr_worker import licence_patronymic
+        words = [row('2', x=248, y=448, width=22, height=14),
+                 row('EXAMPLE', x=266, y=448, width=90, height=20),
+                 row("PARENT O'GLI", x=268, y=464, width=140, height=24),
+                 row('3.TESTCITY 27.07.1994', x=242, y=481, height=27),
+                 row('8.OTHER ADDRESS', x=270, y=620)]
+        self.assertEqual(licence_patronymic(words), "PARENT O'GLI")
+        self.assertIsNone(licence_patronymic(words[:3]))
+        self.assertIsNone(licence_patronymic(words[:2] + [row('PATRON', x=268, y=464)] + words[3:]))
+
     def test_identifies_documents_by_multiple_printed_labels(self):
         from bot.neural_ocr_worker import document_kind
         boxes = [[0, 0], [100, 0], [100, 20], [0, 20]]

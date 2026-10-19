@@ -97,7 +97,7 @@ async def extract_documents(bot, data):
         else:
             payload.append(item)
     rows = await worker(payload) if payload else []
-    candidates = {key: set() for key in (*FIELDS, 'full_name', 'surname', 'given_name')}
+    candidates = {key: set() for key in (*FIELDS, 'full_name', 'surname', 'given_name', 'patronymic')}
     completed = set()
     latest = {}
     for row in rows:
@@ -114,9 +114,9 @@ async def extract_documents(bot, data):
             continue
         values = normalize(row.get('values', {}))
         from bot.neural_ocr_worker import clean_name
-        for key in ('full_name', 'surname', 'given_name'):
+        for key in ('full_name', 'surname', 'given_name', 'patronymic'):
             values[key] = clean_name(row.get('values', {}).get(key) or '') if kind == 'license_front' else None
-        for key in (*SOURCES[kind], 'full_name', 'surname', 'given_name'):
+        for key in (*SOURCES[kind], 'full_name', 'surname', 'given_name', 'patronymic'):
             if values[key]:
                 candidates[key].add(values[key])
     failed += [item['source'] for item in payload if item['source'] not in completed]

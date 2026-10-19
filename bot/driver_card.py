@@ -22,6 +22,7 @@ def details(result, phone='', plate=''):
     lines = [
         f"Familiya: {value('surname')}",
         f"Ism: {value('given_name')}",
+        f"Otasining ismi: {value('patronymic')}",
         f"Tug‘ilgan sana: {value('birth_date')}",
         f"Telefon raqami: {entered(phone_digits)}",
         f"PINFL: {value('pinfl')}",
