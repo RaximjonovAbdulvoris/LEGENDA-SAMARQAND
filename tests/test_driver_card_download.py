@@ -22,13 +22,13 @@ class CardTests(unittest.TestCase):
                     'birth_place': 'TEST CITY', 'license_number': 'AB1234567',
                     'license_expiry': '01.02.2030', 'vehicle_registration': 'AC1234567'}},
                     '+998901234567', '01A123BC')
-        labels = ('Familiya:', 'Ism:', 'Otasining ismi:', 'Tug‘ilgan sana:', 'Telefon raqami:',
+        labels = ('Familiya:', 'Ism:', 'Tug‘ilgan sana:', 'Telefon raqami:',
                   'PINFL:', 'Tug‘ilgan joy:', 'Prava raqami:', 'Amal qilish muddati:',
                   'Avtomobil raqami:', 'Texpasport seriya raqami:')
         self.assertEqual([text.index(label) for label in labels], sorted(text.index(label) for label in labels))
         self.assertEqual(text.count('Tug‘ilgan sana:'), 1)
         self.assertNotIn('EXAMPLE PERSON', text)
-        self.assertIn('Otasining ismi: <code>PARENT O&#x27;GLI</code>', text)
+        self.assertNotIn('Otasining ismi:', text)
         self.assertIn('<code>998901234567</code>', details({'values': {}}, '+998 90 123 45 67'))
 
     def test_numbered_licence_fields_separate_identity(self):

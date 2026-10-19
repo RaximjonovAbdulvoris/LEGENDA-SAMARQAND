@@ -211,29 +211,6 @@ def licence_name(words):
     return ' '.join(identity) if identity else None
 
 
-def licence_patronymic(words):
-    """Read the printed line between fields 2 and 3, never the address."""
-    seconds = [w for w in words if w.confidence >= 85 and
-               re.match(r'^2(?:[.)]|\s|$)', w.text.strip())]
-    thirds = [w for w in words if w.confidence >= 85 and
-              re.match(r'^3(?:[.)]|\s|$)', w.text.strip())]
-    if len(seconds) != 1 or len(thirds) != 1:
-        return None
-    second, third = seconds[0], thirds[0]
-    if not second.top < third.top or third.top - second.top > max(second.height, third.height) * 4:
-        return None
-    candidates = []
-    for word in words:
-        if word.confidence < 85 or not (second.top < word.top < third.top):
-            continue
-        if not (second.left <= word.left <= second.left + max(second.width, second.height * 3)):
-            continue
-        value = clean_name(word.text)
-        if value and re.search(r"(?:O['‘’ʼ`]?G['‘’ʼ`]?LI|QIZI|(?:O|E|I|Y)?VICH|(?:O|E|I|Y)?VNA)$", value, re.I):
-            candidates.append(value)
-    return candidates[0] if len(candidates) == 1 else None
-
-
 def unanimous(readings):
     # Different confident readings remain unknown, even if a majority agrees.
     items = set(value for value in readings if value)
@@ -388,8 +365,7 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
         identity = licence_identity(words)
         values['surname'], values['given_name'] = identity or (None, None)
         values['full_name'] = ' '.join(identity) if identity else None
-        values['patronymic'] = licence_patronymic(words)
-        if not identity or not values['patronymic'] or any(not values.get(key) for key in
+        if not identity or any(not values.get(key) for key in
                 ('pinfl', 'birth_date', 'birth_place', 'license_number', 'license_expiry')):
             normal, _ = engine(np.array(image)[:, :, ::-1].copy())
             normal_words = []
@@ -414,13 +390,6 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
                 identity = normal_identity
                 values['surname'], values['given_name'] = identity or (None, None)
                 values['full_name'] = ' '.join(identity) if identity else None
-            other_patronymic = licence_patronymic(normal_words)
-            if values['patronymic'] and other_patronymic and values['patronymic'] != other_patronymic:
-                values['patronymic'] = None
-                conflicts.add('patronymic')
-            else:
-                if 'patronymic' not in conflicts:
-                    values['patronymic'] = values['patronymic'] or other_patronymic
         if emit:
             emit(guard_identifiers(values)[0], source)
         anchors = [w for w in words if w.confidence >= 75 and re.match(r'^3[.)]', w.text)]
@@ -434,7 +403,7 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
     # Spend the extra time only when the first pass did not read the fields
     # required from this document. Local contrast restores dim text and the
     # mild sharpening can separate letters softened by camera focus.
-    required = ('full_name', 'patronymic', 'pinfl', 'birth_date', 'birth_place',
+    required = ('full_name', 'pinfl', 'birth_date', 'birth_place',
                 'license_number', 'license_expiry') if source == 'license_front' else ('vehicle_registration',)
     other = []
     if any(not values.get(key) for key in required):
@@ -450,8 +419,7 @@ def read_document(engine, raw, source, emit=None, return_kind=False):
             other_identity = licence_identity(other)
             alternate['surname'], alternate['given_name'] = other_identity or (None, None)
             alternate['full_name'] = ' '.join(other_identity) if other_identity else None
-            alternate['patronymic'] = licence_patronymic(other)
-        required = (*required, 'surname', 'given_name', 'patronymic') if source == 'license_front' else required
+        required = (*required, 'surname', 'given_name') if source == 'license_front' else required
         for key in required:
             if alternate.get(key):
                 if values.get(key) and values[key] != alternate[key]:
