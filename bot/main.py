@@ -144,8 +144,9 @@ async def post_init(application) -> None:
     from bot.presentation import load_emoji_packs
     await load_emoji_packs(application)
     await warmup_templates(application)
-    # Telegram may hold thousands of old applications. Updating every old
-    # keyboard before polling makes the bot unavailable for minutes at boot.
+    # Legacy button callbacks remain supported. Rewriting thousands of old
+    # keyboards on every restart saturates Telegram requests and delays live
+    # operator callbacks, so leave them in place until an operator acts.
     application.job_queue.run_once(refresh_operator_controls, when=2)
     from bot.background_ocr import resume_pending
     application.job_queue.run_repeating(resume_pending, interval=15, first=0)
@@ -153,7 +154,6 @@ async def post_init(application) -> None:
 
 async def refresh_operator_controls(context) -> None:
     await remove_legacy_brand_keyboards(context.application)
-    await refresh_driver_keyboards(context.application)
 
 
 def main() -> None:

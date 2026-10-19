@@ -646,6 +646,8 @@ async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     if len(parts) != 3 or parts[0] != "op":
         return
     action, applicant_id_str = parts[1], parts[2]
+    if action == "other":  # Accept buttons left on older applications.
+        action = "otherpark"
     try:
         applicant_id = int(applicant_id_str)
     except ValueError:

@@ -26,4 +26,4 @@ class BootTests(unittest.IsolatedAsyncioTestCase):
             application.job_queue.run_once.assert_called_once_with(main.refresh_operator_controls, when=2)
             await main.refresh_operator_controls(SimpleNamespace(application=application))
             brand.assert_awaited_once_with(application)
-            driver.assert_awaited_once_with(application)
+            driver.assert_not_awaited()

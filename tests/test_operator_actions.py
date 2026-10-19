@@ -74,6 +74,14 @@ class OperatorActionTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(key,ctx.bot_data['applications'])
             self.assertEqual(next(iter(ctx.bot_data['applications'].values()))['queue_kind'],action)
 
+    async def test_old_other_callback_moves_exact_legacy_application(self):
+        bot, ctx, key, msg = self.setup_case()
+        record = ctx.bot_data['applications'].pop(key)
+        ctx.bot_data['app_messages'] = {9: record}
+        await operator.on_operator_button(_update('op:other:9', msg), ctx)
+        self.assertNotIn(key, ctx.bot_data['applications'])
+        self.assertEqual(next(iter(ctx.bot_data['applications'].values()))['queue_kind'], 'otherpark')
+
     async def test_failed_notice_retains_application_without_success_marker(self):
         bot,ctx,key,msg=self.setup_case()
         bot.send_message=AsyncMock(side_effect=Forbidden('blocked'))
