@@ -14,6 +14,22 @@ from bot.fast_ocr import Word, DATE, SERIAL
 PRINTED_DATE = r'([0-9]{2})[ ./-]?([0-9]{2})[ ./-]?([0-9]{4})'
 
 
+def document_kind(rows):
+    """Identify a document only from several independent printed field labels."""
+    texts = [text.strip().upper() for _, text, confidence in rows or [] if confidence >= .70]
+    has_4d = any(re.match(r'^4\s*D[.)]?\s*[0-9]{14}\b', text) for text in texts)
+    has_5 = any(re.match(r'^5[.)]?\s*[A-Z]{1,3}[0-9]{6,}', text) for text in texts)
+    has_3 = any(re.match(r'^3[.)]?\s*.*[0-9]{4}$', text) for text in texts)
+    has_4a = any(re.match(r'^4\s*A[.)]?\s*[0-9]{2}', text) for text in texts)
+    if (has_4d and (has_5 or has_3 or has_4a)) or (has_3 and has_5 and has_4a):
+        return 'license_front'
+    numbered = {int(match[1]) for text in texts
+                if (match := re.match(r'^(9|10|11|12|13|14)[.)]?\s*', text))}
+    if 10 in numbered and len(numbered) >= 3 and (11 in numbered or 12 in numbered):
+        return 'tech_back'
+    return None
+
+
 def fields_from_rows(rows, source, width, height):
     values = {field: set() for field in FIELDS}
     def add(field, text):
@@ -290,7 +306,7 @@ def orientation_hint(result, technical=False):
     return 0
 
 
-def read_document(engine, raw, source, emit=None):
+def read_document(engine, raw, source, emit=None, return_kind=False):
     import numpy as np
     with Image.open(BytesIO(raw)) as opened:
         if opened.width * opened.height > 30_000_000:
@@ -298,6 +314,14 @@ def read_document(engine, raw, source, emit=None):
         image = ImageOps.exif_transpose(opened).convert('RGB')
     image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
     result, _ = engine(np.array(ImageOps.invert(image))[:, :, ::-1].copy())
+    detected = document_kind(result)
+    if not detected and source not in ('license_front', 'tech_back'):
+        normal, _ = engine(np.array(image)[:, :, ::-1].copy())
+        detected = document_kind(normal)
+        if detected:
+            result = normal
+    if detected:
+        source = detected
     if source == 'license_front' or source.startswith('tech_'):
         for _ in range(2):
             angle = orientation_hint(result, technical=source.startswith('tech_'))
@@ -326,7 +350,7 @@ def read_document(engine, raw, source, emit=None):
             values['surname'], values['given_name'] = identity or (None, None)
             values['full_name'] = ' '.join(identity) if identity else None
         if emit:
-            emit(guard_identifiers(values)[0])
+            emit(guard_identifiers(values)[0], source)
         anchors = [w for w in words if w.confidence >= 75 and re.match(r'^3[.)]', w.text)]
         if len(anchors) == 1 and (not values['birth_place'] or not values['birth_date']):
             refined = refine_birth(engine, image, anchors[0])
@@ -374,7 +398,8 @@ def read_document(engine, raw, source, emit=None):
                     for w in serial_words}
         confirmed = refine_registration(engine, image, serial_words[:1]) if len(distinct) == 1 else None
         values['vehicle_registration'] = confirmed if confirmed == values.get('vehicle_registration') else None
-    return guard_identifiers(values)[0]
+    values = guard_identifiers(values)[0]
+    return (values, source) if return_kind else values
 
 
 def main():
@@ -392,9 +417,10 @@ def main():
             raw = base64.b64decode(item['image'], validate=True)
             if len(raw) > 5_000_000:
                 raise ValueError('Image too large')
-            values = read_document(engine, raw, source, emit=lambda partial: print(
-                json.dumps({'source': source, 'values': partial, 'final': False}), flush=True))
-            print(json.dumps({'source': source, 'values': values, 'final': True}), flush=True)
+            values, kind = read_document(engine, raw, source, return_kind=True,
+                emit=lambda partial, detected: print(json.dumps({
+                    'source': source, 'kind': detected, 'values': partial, 'final': False}), flush=True))
+            print(json.dumps({'source': source, 'kind': kind, 'values': values, 'final': True}), flush=True)
         except Exception as error:
             print(json.dumps({'source': source, 'error': type(error).__name__}), flush=True)
 

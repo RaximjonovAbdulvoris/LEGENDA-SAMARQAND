@@ -14,6 +14,30 @@ def row(text, x=300, y=300, confidence=99, width=200, height=30):
 
 
 class NeuralOCRTests(unittest.IsolatedAsyncioTestCase):
+    def test_identifies_documents_by_multiple_printed_labels(self):
+        from bot.neural_ocr_worker import document_kind
+        boxes = [[0, 0], [100, 0], [100, 20], [0, 20]]
+        detected = lambda *items: [(boxes, text, .99) for text in items]
+        self.assertEqual(document_kind(detected('3.TESTCITY 29.05.1994',
+            '4d.12345678901234', '5.AB1234567')), 'license_front')
+        self.assertEqual(document_kind(detected('9.2026', '10.SEDAN',
+            '11.VIN', '12.1200KG')), 'tech_back')
+        self.assertIsNone(document_kind(detected('5.AB1234567', 'A RANDOM PHOTO')))
+
+    async def test_swapped_upload_slots_route_fields_by_detected_kind(self):
+        file = N(file_size=4, download_as_bytearray=AsyncMock(return_value=b'data'))
+        bot = N(get_file=AsyncMock(return_value=file))
+        with patch.object(neural, 'worker', AsyncMock(return_value=[
+            {'source': 'tech_front', 'kind': 'license_front', 'final': True,
+             'values': {'surname': 'EXAMPLE', 'given_name': 'PERSON', 'pinfl': '12345678901234'}},
+            {'source': 'license_front', 'kind': 'tech_back', 'final': True,
+             'values': {'vehicle_registration': 'ABC1234567'}}])):
+            result = await neural.extract_documents(bot, {'tech_front': 'wrong1', 'license_front': 'wrong2'})
+        self.assertEqual(result['values']['full_name'], None)
+        self.assertEqual(result['values']['surname'], 'EXAMPLE')
+        self.assertEqual(result['values']['vehicle_registration'], 'ABC1234567')
+        self.assertFalse(result['retryable'])
+
     def test_missing_field_one_keeps_clear_aligned_identity(self):
         from bot.neural_ocr_worker import licence_identity
         words = [row('EXAMPLE', x=320, y=628, width=114, height=24, confidence=98),

@@ -76,7 +76,9 @@ async def engine_info():
 
 async def extract_documents(bot, data):
     start = time.monotonic()
-    order = ('license_front', 'tech_back', 'tech_front')
+    # Drivers can put a document in the wrong upload step. Inspect every
+    # document slot, then attribute fields to the detected document type.
+    order = ('license_front', 'passport_front', 'license_back', 'tech_back', 'tech_front')
     selected = [source for source in order if data.get(source)]
     async def download(source):
         file = await bot.get_file(data[source])
@@ -107,19 +109,22 @@ async def extract_documents(bot, data):
             continue
         if row.get('final', True):
             completed.add(source)
+        kind = row.get('kind', source)
+        if kind not in SOURCES:
+            continue
         values = normalize(row.get('values', {}))
         from bot.neural_ocr_worker import clean_name
         for key in ('full_name', 'surname', 'given_name'):
-            values[key] = clean_name(row.get('values', {}).get(key) or '') if source == 'license_front' else None
-        for key in (*SOURCES[source], 'full_name', 'surname', 'given_name'):
+            values[key] = clean_name(row.get('values', {}).get(key) or '') if kind == 'license_front' else None
+        for key in (*SOURCES[kind], 'full_name', 'surname', 'given_name'):
             if values[key]:
                 candidates[key].add(values[key])
     failed += [item['source'] for item in payload if item['source'] not in completed]
     values = {key: next(iter(items)) if len(items) == 1 else None for key, items in candidates.items()}
     values, rejected = guard_identifiers(values, data.get('car_plate'))
     source_errors = list(failed)
-    failed = [source for source in failed if source == 'license_front' or
-              (source.startswith('tech_') and not values.get('vehicle_registration'))]
+    # A failed slot may contain either document after a mix-up.
+    failed = failed if not values.get('full_name') or not values.get('vehicle_registration') else []
     logger.info('Neural OCR finished: seconds=%.2f fields=%s failed_sources=%s',
         time.monotonic() - start, sum(bool(v) for v in values.values()), len(failed))
     return {'retryable': bool(failed), 'backend': 'rapid', 'status': 'complete' if all(values.values()) and not failed else 'partial',
