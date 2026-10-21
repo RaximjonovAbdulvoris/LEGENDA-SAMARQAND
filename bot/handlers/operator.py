@@ -673,6 +673,27 @@ async def on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
+    if action in ("incomplete", "delete", "download"):
+        # Buttons on applications posted by the temporary version are no
+        # longer part of the classic operator flow. Refresh only the clicked
+        # message, avoiding thousands of Telegram edits at startup.
+        if resolved is not None:
+            key, record = resolved
+            try:
+                await query.edit_message_reply_markup(
+                    reply_markup=build_operator_keyboard(
+                        applicant_id,
+                        in_progress=context.bot_data.get("progress_state", {}).get(key, False),
+                        review=record.get("queue_kind") == "otherpark",
+                    )
+                )
+            except Exception:
+                logger.warning("Legacy operator buttons could not be refreshed")
+        await query.message.reply_text(
+            "Bu tugma olib tashlangan. Tayyor, Izoh, Jarayonda yoki Boshqa park tugmasidan foydalaning."
+        )
+        return
+
     if action in ("ready", "progress", "otherpark") and resolved is None:
         await query.message.reply_text(
             "⚠️ Bu tugma boshqa yoki eski arizaga tegishli. Ariza o‘zgartirilmadi."
