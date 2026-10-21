@@ -63,9 +63,9 @@ class RouteSettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_settings()
 
-    def test_retired_spectre_routes_are_ignored(self):
+    def test_only_old_namangan_spectre_route_is_ignored(self):
         settings_path().write_text('{"NAMANGAN_SPECTRE_GROUP":"-100", "TASHKENT_SPECTRE_GROUP":"-200", "TASHKENT_DRIVER_GROUP_1":"-101"}', encoding="utf-8")
-        self.assertEqual(read_settings(), {"TASHKENT_DRIVER_GROUP_1": "-101", "TASHKENT_SPECTRE_GROUP": "-200"})
+        self.assertEqual(read_settings(), {"TASHKENT_SPECTRE_GROUP": "-200", "TASHKENT_DRIVER_GROUP_1": "-101"})
 
     def test_checks_fail_cleanly_without_routes_or_token(self):
         self.assertEqual(self.run_cli("check", "--scope", "all"), 1)

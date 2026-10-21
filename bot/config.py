@@ -15,14 +15,8 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
 
 def template_path(name: str) -> str | None:
-    # Preserve the park's original samples, including its legacy car collage.
-    for original in ((name, 'car_sides') if name.startswith('car_') else (name,)):
-        for ext in ('jpg', 'jpeg', 'png', 'webp'):
-            p = os.path.join(TEMPLATES_DIR, f'{original}.{ext}')
-            if os.path.isfile(p):
-                return p
-    from bot.template_cards import generated_directory
-    generated = generated_directory() / f'{name}.png'
-    if generated.is_file():
-        return str(generated)
+    for ext in ("jpg", "jpeg", "png"):
+        p = os.path.join(TEMPLATES_DIR, f"{name}.{ext}")
+        if os.path.exists(p):
+            return p
     return None

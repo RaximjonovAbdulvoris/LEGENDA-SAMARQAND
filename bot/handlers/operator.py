@@ -6,64 +6,32 @@ application: one applicant can have more than one regional application at the
 same time.
 """
 import logging
+from copy import deepcopy
 from html import escape as h
 
 from telegram import InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import BadRequest, Forbidden, RetryAfter, TimedOut, NetworkError
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from bot.regions import archive_group, region_name
-from bot.presentation import button as styled_button, with_keyboard_fallback
+from bot.route_settings import destination
 from bot.brand_cleanup import is_plain_application_message, remove_buttons_command
 
 logger = logging.getLogger(__name__)
-
-
-def _refresh_reason(error):
-    # Only known categories are logged: exception text can contain user data.
-    if isinstance(error, Forbidden):
-        return 'forbidden'
-    if isinstance(error, RetryAfter):
-        return 'rate_limit'
-    if isinstance(error, BadRequest):
-        text = str(error).lower()
-        if 'not found' in text:
-            return 'message_missing'
-        if "can't be edited" in text or 'not enough rights' in text:
-            return 'not_editable_or_rights'
-        return 'bad_request'
-    if isinstance(error, (TimedOut, NetworkError)):
-        return 'network'
-    return 'unexpected'
 
 # Process-local only: persistence must never turn an interrupted archive into
 # a permanently locked application after a restart.
 _ARCHIVES_IN_FLIGHT: set[tuple[int, int]] = set()
 
 READY_TEXT = (
-    "✅ <b>Arizangiz bo‘yicha ish yakunlandi</b>\n\n"
-    "Murojaatingiz operator tomonidan ko‘rib chiqildi va yakunlandi.\n"
-    "Savollar uchun: +998 78 150-50-50."
-)
-
-
-INCOMPLETE_TEXT = (
-    "📄 <b>Hujjatlarni qayta yuborishingizni so‘raymiz</b>\n\n"
-    "Arizangizni ko‘rib chiqdik. Yuborilgan hujjat rasmlarida kamchiliklar "
-    "aniqlandi yoki ayrim ma’lumotlar aniq ko‘rinmayapti.\n\n"
-    "Iltimos, bot menyusidagi «📝 Ulanish uchun Ariza» bo‘limi orqali arizani "
-    "qaytadan to‘ldirib, barcha so‘ralgan hujjat va avtomobil rasmlarini "
-    "to‘liq, tiniq va chetlari kesilmagan holda yuboring.\n\n"
-    "Savollaringiz bo‘lsa, biz bilan bog‘laning: +998 78 150-50-50."
+    "✅ <b>WB LEGENDA arizangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+    "📞 Tez orada operatorlarimiz siz bilan bog‘lanishadi."
 )
 OTHER_PARK_TEXT = (
     "🚕 <b>Arizangiz bo‘yicha ma’lumot</b>\n\n"
-    "Arizangizni ko‘rib chiqdik. Siz boshqa taksopark orqali ro‘yxatdan "
-    "o‘tganingiz sababli hozircha sizni WB LEGENDA taksoparki bazasiga "
-    "qo‘sha olmadik.\n\n"
-    "Iltimos, ro‘yxatdan o‘tgan taksoparkingiz bilan bog‘lanib, "
-    "WB LEGENDA taksoparkiga o‘tish masalasini hal qiling. "
-    "Shundan so‘ng biz bilan bog‘lanishingiz mumkin.\n\n"
+    "Arizangiz ko‘rib chiqildi. Boshqa taksopark orqali ro‘yxatdan "
+    "o‘tganingiz sababli sizni hozircha WB LEGENDA bazasiga qo‘sha olmadik. "
+    "Iltimos, avval ro‘yxatdan o‘tgan taksoparkingiz bilan bog‘lanib, "
+    "parkni almashtirish masalasini hal qiling.\n\n"
     "Yordam uchun: +998 78 150-50-50."
 )
 
@@ -71,119 +39,38 @@ OTHER_PARK_TEXT = (
 def build_operator_keyboard(
     applicant_user_id: int, in_progress: bool = False, review: bool = False
 ) -> InlineKeyboardMarkup:
-    def button(label, action):
-        style = {"ready": "success", "delete": "danger"}.get(action, "primary")
-        icon = ('PROGRESS_ACTIVE' if in_progress else 'PROGRESS_IDLE') if action == 'progress' else action.upper()
-        return styled_button(label, action=f"op:{action}:{applicant_user_id}",
-                             style=style, icon=icon)
-    rows = [[button("✅ Tayyor", "ready"),
-             button("Jarayonda (faol) 🟡" if in_progress else "Jarayonda (bo‘sh) 🔴", "progress")]]
-    if not review:
-        rows.append([button("📷 Chala rasm", "incomplete"), button("🚕 Boshqa park", "otherpark")])
-    rows.append([button("🗑 O‘chirish", "delete")])
-    if not review:
-        rows.append([button("📦 Hujjatlarni yuklab olish", "download")])
-    return InlineKeyboardMarkup(rows)
+    """The original keyboard contract used by the existing form workers."""
+    progress_btn = InlineKeyboardButton(
+        "Jarayonda🟡" if in_progress else "Jarayonda🔴",
+        callback_data=f"op:progress:{applicant_user_id}",
+    )
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ Tayyor", callback_data=f"op:ready:{applicant_user_id}"
+                ),
+                InlineKeyboardButton(
+                    "💬 Izoh berish", callback_data=f"op:comment:{applicant_user_id}"
+                ),
+            ],
+            [progress_btn],
+            *([] if review else [[InlineKeyboardButton(
+                "🚕 Boshqa park", callback_data=f"op:otherpark:{applicant_user_id}"
+            )]]),
+        ]
+    )
 
 
-
-def _comment_only_keyboard(applicant_user_id: int):
-    # Existing conversations can finish, but no new comment buttons are sent.
-    return None
-
-
-def is_review_record(record: dict) -> bool:
-    """Recognize both current and migrated NAMANTOSH review queue records."""
-    return record.get('queue_kind') in ('incomplete', 'otherpark') or record.get('queue_stage') in ('incomplete', 'other')
-
-
-async def refresh_driver_keyboards(application) -> None:
-    """Upgrade stored driver controls on deployment; never touch plain forms."""
-    from bot.background_ocr import control_lock
-    seen = set()
-    for store in ("applications", "app_messages"):
-        for record in list(application.bot_data.get(store, {}).values()):
-            if not isinstance(record, dict) or record.get("kind", "driver") != "driver":
-                continue
-            chat_id, message_id = record.get("group_chat_id"), record.get("kb_msg_id")
-            user_id = record.get("applicant_id")
-            if not chat_id or not message_id or user_id is None:
-                continue
-            key = _application_key(chat_id, message_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            async with control_lock(chat_id, message_id):
-                from bot.background_download import active
-                if active(application, key):
-                    continue
-                if record.get('deleted_source_ids') or record.get('_transfer') or _record_for_key(application, key) is None:
-                    continue
-                try:
-                    await with_keyboard_fallback(application.bot.edit_message_reply_markup,
-                        chat_id=chat_id, message_id=message_id,
-                        reply_markup=build_operator_keyboard(
-                            user_id, application.bot_data.get("progress_state", {}).get(key, False),
-                            review=is_review_record(record)
-                        ),
-                    )
-                except BadRequest as error:
-                    if "message is not modified" not in str(error).lower():
-                        reason = _refresh_reason(error)
-                        if reason == 'message_missing':
-                            logger.info("Driver control refresh skipped: source=%s reason=%s", key, reason)
-                        else:
-                            logger.warning("Driver control refresh failed: source=%s reason=%s", key, reason)
-                except Exception as error:
-                    logger.warning("Driver control refresh failed: source=%s reason=%s", key, _refresh_reason(error))
-
-
-def _forget_application(context, key, record):
-    for store in ("applications", "app_messages"):
-        records = context.bot_data.get(store, {})
-        records.pop(key, None)
-        legacy = records.get(record["applicant_id"])
-        if isinstance(legacy, dict) and _same_application(
-            legacy, record["applicant_id"], record["group_chat_id"], record["kb_msg_id"]
-        ):
-            records.pop(record["applicant_id"], None)
-    context.bot_data.get("progress_state", {}).pop(key, None)
-    from bot.background_ocr import cancel_if_removed
-    cancel_if_removed(getattr(context, 'application', None), record.get('code'), record['applicant_id'])
-    for store in ("pending_comments", "pending_user_replies", "operator_message_links"):
-        entries = context.bot_data.get(store, {})
-        for entry_key, target in list(entries.items()):
-            if target == key:
-                entries.pop(entry_key, None)
-                if store == "pending_comments":
-                    context.bot_data.get("pending_prompts", {}).pop(entry_key, None)
-
-
-async def _delete_operator_application(context, key, record) -> bool:
-    """Delete only recorded source messages; keep controls until photos are gone."""
-    completed = record.setdefault("deleted_source_ids", [])
-    ids = list(dict.fromkeys(record.get("photo_msg_ids", [])))
-    ids = [mid for mid in ids if mid != record["kb_msg_id"]]
-    ids.extend(mid for mid in record.get('zip_message_ids', []) if isinstance(mid, int))
-    ids.append(record["kb_msg_id"])
-    ids = list(dict.fromkeys(ids))
-    for message_id in ids:
-        if message_id in completed:
-            continue
-        try:
-            await context.bot.delete_message(
-                chat_id=record["group_chat_id"], message_id=message_id,
+def _comment_only_keyboard(applicant_user_id: int) -> InlineKeyboardMarkup:
+    """Keyboard for a reply, which must never look like a new application."""
+    return InlineKeyboardMarkup(
+        [[
+            InlineKeyboardButton(
+                "💬 Izoh berish", callback_data=f"op:comment:{applicant_user_id}"
             )
-        except BadRequest as error:
-            if "message to delete not found" not in str(error).lower():
-                logger.warning("Application source deletion failed for %s", key)
-                return False
-        except Exception:
-            logger.warning("Application source deletion failed for %s", key)
-            return False
-        completed.append(message_id)
-    _forget_application(context, key, record)
-    return True
+        ]]
+    )
 
 
 def _application_key(group_chat_id: int, kb_msg_id: int) -> tuple[int, int]:
@@ -202,7 +89,6 @@ def register_application(
     applicant_name: str = "",
     username: str = "",
     media_albums: list[dict] | None = None,
-    code: str = "",
 ):
     """Register a form application and return its stable record key.
 
@@ -213,7 +99,6 @@ def register_application(
     key = _application_key(group_chat_id, kb_msg_id)
     record = {
         "application_key": key,
-        "code": code,
         "applicant_id": int(applicant_id),
         "region": region,
         "kind": kind,
@@ -438,9 +323,9 @@ async def _archive_application_locked(bot, record: dict, destination: str) -> bo
                             len(pending_ids),
                         )
                     else:
-                        state['destination_photo_ids'] = [
-                            getattr(item, 'message_id', None) for item in result
-                        ]
+                        dest_ids = [getattr(item, "message_id", None) for item in result]
+                        if all(isinstance(mid, int) and mid > 0 for mid in dest_ids):
+                            batch["destination_message_ids"] = dest_ids
                         for message_id in pending_ids:
                             copied_photos[str(message_id)] = True
                 except Exception as error:
@@ -451,16 +336,17 @@ async def _archive_application_locked(bot, record: dict, destination: str) -> bo
 
         if not state.get("kb"):
             try:
-                copied = await with_keyboard_fallback(bot.copy_message,
+                copied = await bot.copy_message(
                     chat_id=destination,
                     from_chat_id=source,
                     message_id=record["kb_msg_id"],
-                    reply_markup=record.get("_copy_markup", InlineKeyboardMarkup([])),
+                    reply_markup=record.get("_copy_markup"),
                 )
                 if copied is None:
                     raise RuntimeError("Telegram did not confirm the keyboard copy")
                 state["kb"] = True
-                state["destination_kb_id"] = getattr(copied, "message_id", None)
+                if isinstance(getattr(copied, "message_id", None), int):
+                    state["destination_kb_id"] = copied.message_id
             except Exception as error:
                 failed = True
                 logger.warning("archive: keyboard message failed: %s", error)
@@ -484,6 +370,112 @@ def _album_chunks(items: list[dict]) -> list[list[dict]]:
         chunks.append(remaining[:size])
         remaining = remaining[size:]
     return chunks
+
+
+async def _save_transfer(context) -> bool:
+    application = getattr(context, "application", None)
+    if application is None or application.persistence is None:
+        return True
+    try:
+        await application.update_persistence()
+        await application.persistence.flush()
+        return True
+    except Exception:
+        logger.exception("other park: state could not be saved")
+        return False
+
+
+def _moved_photo_ids(record, state):
+    albums = record.get("media_albums")
+    if albums is None:
+        batch = state.get("photo_batch", {})
+        ids = batch.get("destination_message_ids", [])
+        return ids if len(ids) == len(record.get("photo_msg_ids", [])) else []
+    ids = []
+    for album_index, album in enumerate(albums):
+        for chunk_index, chunk in enumerate(_album_chunks(album["photos"])):
+            current = state.get("albums", {}).get(f"{album_index}:{chunk_index}", {})
+            chunk_ids = current.get("destination_message_ids", [])
+            if len(chunk_ids) != len(chunk):
+                return []
+            ids.extend(chunk_ids)
+    return ids
+
+
+async def _finish_other_park(context, source_key, source, target):
+    if not await _save_transfer(context):
+        return False
+    state = source["other_park_state"]
+    deleted = state.setdefault("deleted_source_ids", [])
+    for mid in [*source.get("photo_msg_ids", []), source["kb_msg_id"]]:
+        if mid in deleted:
+            continue
+        try:
+            await context.bot.delete_message(chat_id=source["group_chat_id"], message_id=mid)
+        except Exception:
+            logger.warning("other park: source cleanup failed for %s", source_key)
+            return False
+        deleted.append(mid)
+    for store in ("applications", "app_messages"):
+        context.bot_data.get(store, {}).pop(source_key, None)
+    context.bot_data.get("progress_state", {}).pop(source_key, None)
+    if not await _save_transfer(context):
+        return False
+    if not target.get("other_park_notified"):
+        try:
+            await context.bot.send_message(
+                chat_id=target["applicant_id"], text=OTHER_PARK_TEXT, parse_mode="HTML",
+            )
+            target["other_park_notified"] = True
+            await _save_transfer(context)
+        except Exception:
+            logger.warning("other park: applicant notice failed for %s", source_key)
+    return True
+
+
+async def _move_other_park(context, source_key, source):
+    region = source.get("region")
+    if region not in ("andijon", "tashkent"):
+        return False
+    group = destination(f"{region.upper()}_OTHER_PARK_GROUP")
+    if not group or str(group) == str(source.get("group_chat_id")):
+        return False
+    saved = source.get("other_park_destination")
+    if saved and str(saved) != str(group):
+        return False
+    source["other_park_destination"] = str(group)
+    if source.get("other_park_child"):
+        child = _record_for_key(context, source["other_park_child"])
+        return bool(child) and await _finish_other_park(context, source_key, source, child)
+
+    state = source.setdefault("other_park_state", {"photos": {}, "kb": False})
+    shadow = dict(source, archive_state=state,
+                  _copy_markup=build_operator_keyboard(source["applicant_id"], review=True))
+    if not await _archive_application(context.bot, shadow, str(group)):
+        return False
+    ids = _moved_photo_ids(source, state)
+    kb_id = state.get("destination_kb_id")
+    if (not ids or len(ids) != len(set(ids))
+            or any(not isinstance(mid, int) or mid <= 0 for mid in ids)
+            or not isinstance(kb_id, int) or kb_id <= 0):
+        return False
+    albums = deepcopy(source.get("media_albums"))
+    if albums is not None:
+        index = 0
+        for album in albums:
+            size = len(album["photos"])
+            album["source_message_ids"] = ids[index:index + size]
+            index += size
+    child_key = register_application(
+        context, applicant_id=source["applicant_id"], region=region, kind="driver",
+        group_chat_id=int(group), photo_msg_ids=ids, kb_msg_id=kb_id,
+        applicant_name=source.get("applicant_name", ""),
+        username=source.get("username", ""), media_albums=albums,
+    )
+    child = _record_for_key(context, child_key)
+    child["queue_kind"] = "otherpark"
+    source["other_park_child"] = child_key
+    return await _finish_other_park(context, source_key, source, child)
 
 
 async def _archive_reconstructed_albums(
@@ -555,6 +547,7 @@ async def _archive_reconstructed_albums(
                     )
                     if sent is None:
                         raise RuntimeError("Telegram did not confirm photo send")
+                    sent_ids = [getattr(sent, "message_id", None)]
                 else:
                     media = [
                         InputMediaPhoto(
@@ -583,11 +576,10 @@ async def _archive_reconstructed_albums(
                         )
                         failed = True
                         continue
-                message_ids = ([getattr(sent, 'message_id', None)] if len(chunk) == 1
-                               else [getattr(item, 'message_id', None) for item in sent])
+                    sent_ids = [getattr(message, "message_id", None) for message in sent]
                 checkpoint.clear()
                 checkpoint["status"] = "complete"
-                checkpoint["message_ids"] = message_ids
+                checkpoint["destination_message_ids"] = sent_ids
             except Exception as error:
                 # Exceptions have no successful Bot API response and remain
                 # retryable.  A malformed successful response above does not.
@@ -598,16 +590,17 @@ async def _archive_reconstructed_albums(
 
     if not state.get("kb"):
         try:
-            copied = await with_keyboard_fallback(bot.copy_message,
+            copied = await bot.copy_message(
                 chat_id=destination,
                 from_chat_id=record["group_chat_id"],
                 message_id=record["kb_msg_id"],
-                reply_markup=record.get("_copy_markup", InlineKeyboardMarkup([])),
+                reply_markup=record.get("_copy_markup"),
             )
             if copied is None:
                 raise RuntimeError("Telegram did not confirm the keyboard copy")
             state["kb"] = True
-            state["destination_kb_id"] = getattr(copied, "message_id", None)
+            if isinstance(getattr(copied, "message_id", None), int):
+                state["destination_kb_id"] = copied.message_id
         except Exception as error:
             failed = True
             logger.warning("archive: keyboard message failed: %s", error)
@@ -624,20 +617,6 @@ async def _archive_reconstructed_albums(
 
 
 async def on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from bot.background_ocr import control_lock
-    from bot.background_download import active
-    query = update.callback_query
-    if query and query.message and update.effective_chat:
-        key = (update.effective_chat.id, query.message.message_id)
-        if active(context, key):
-            await query.answer('ZIP tayyorlanmoqda. Shu ariza bo‘yicha amalni birozdan keyin bosing.', show_alert=True)
-            return
-        async with control_lock(*key):
-            return await _on_operator_button(update, context)
-    return await _on_operator_button(update, context)
-
-
-async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query or not query.data or not query.message:
         return
@@ -646,8 +625,6 @@ async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     if len(parts) != 3 or parts[0] != "op":
         return
     action, applicant_id_str = parts[1], parts[2]
-    if action == "other":  # Accept buttons left on older applications.
-        action = "otherpark"
     try:
         applicant_id = int(applicant_id_str)
     except ValueError:
@@ -696,60 +673,21 @@ async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    if action in ("ready", "progress", "incomplete", "otherpark", "delete", "download") and resolved is None:
+    if action in ("ready", "progress", "otherpark") and resolved is None:
         await query.message.reply_text(
             "⚠️ Bu tugma boshqa yoki eski arizaga tegishli. Ariza o‘zgartirilmadi."
         )
         return
 
-    try:
-        membership = await context.bot.get_chat_member(chat.id, operator.id)
-    except Exception:
-        await query.message.reply_text("Operator huquqini tekshirib bo‘lmadi. Qayta urinib ko‘ring.")
-        return
-    if membership.status not in ("administrator", "creator"):
-        await query.message.reply_text("Bu tugmalar faqat guruh administratorlari uchun.")
-        return
-
-    if resolved is not None:
+    if action == "otherpark":
         key, record = resolved
-        from bot.background_download import UNRESOLVED, recovery_text
-        if record.get('zip_delivery_state') in UNRESOLVED and action in ('ready', 'delete', 'incomplete', 'otherpark', 'download'):
-            await query.message.reply_text(recovery_text())
+        if record.get("queue_kind") == "otherpark":
+            await query.message.reply_text("Bu ariza allaqachon «Boshqa park» guruhida.")
             return
-        if record.get('transfer_source_key'):
-            from bot.queue_moves import finish_source_cleanup
-            if not await finish_source_cleanup(context, record):
-                await query.message.reply_text("Asl guruhdagi arizani tozalash tugamadi. Botning o‘chirish huquqini tekshiring va qayta bosing.")
-                return
-        transfer = record.get('_transfer')
-        if transfer and action != transfer['action']:
-            await query.message.reply_text("Ariza boshqa guruhga ko‘chirilmoqda. Ko‘chirish tugmasini qayta bosing.")
-            return
-
-    if action in ("incomplete", "otherpark"):
-        key, record = resolved
-        if is_review_record(record):
-            await query.message.reply_text("Bu guruhda Tayyor, O‘chirish va Jarayonda amallari mavjud.")
-            return
-        from bot.queue_moves import move_to_review
-        result, detail = await move_to_review(context, key, record, action)
-        if not result:
-            await query.message.reply_text(detail)
-        return
-
-    if action == 'download':
-        from bot.background_download import schedule
-        if not schedule(context, resolved[0], resolved[1]):
-            await query.message.reply_text('ZIP navbati band. Birozdan keyin qayta bosing.')
-        return
-
-    if action == "delete":
-        key, record = resolved
-        if not await _delete_operator_application(context, key, record):
+        if not await _move_other_park(context, key, record):
             await query.message.reply_text(
-                "⚠️ Ayrim xabarlarni o‘chirib bo‘lmadi. Bot ruxsatlarini tekshiring. "
-                "Qolgan xabarlar uchun «O‘chirish»ni qayta bosishingiz mumkin."
+                "⚠️ Arizani «Boshqa park» guruhiga to‘liq ko‘chirish tasdiqlanmadi. "
+                "Asl ariza saqlandi. Guruh sozlamasi va bot huquqlarini tekshirib, qayta bosing."
             )
         return
 
@@ -794,54 +732,103 @@ async def _on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
             return
 
-        from bot.queue_moves import checkpoint
-        if not await checkpoint(context):
-            await query.message.reply_text("Arxiv nusxasi yaratildi, lekin holatni saqlab bo‘lmadi. Asl ariza o‘chirilmadi.")
-            return
-        if not await _delete_operator_application(context, key, record):
-            await query.message.reply_text(
-                "✅ Arxiv nusxasi tayyor. Ayrim asl xabarlarni o‘chirib bo‘lmadi. "
-                "Bot ruxsatlarini tekshirib «Tayyor»ni qayta bosing."
-            )
-            return
-        await checkpoint(context)
         try:
             await context.bot.send_message(
                 chat_id=applicant_id,
-                text=READY_TEXT + f"\n📍 <b>{h(_branch(record))}</b>\nAriza: <code>{h(record.get('code') or 'Eski ariza')}</code>",
+                text=READY_TEXT + f"\n📍 <b>{h(_branch(record))}</b>",
                 parse_mode="HTML",
             )
+        except Exception as error:
+            logger.warning("ready: could not notify applicant %s: %s", applicant_id, error)
+
+        delete_failed = False
+        for message_id in record.get("photo_msg_ids", []):
+            try:
+                await context.bot.delete_message(
+                    chat_id=record["group_chat_id"], message_id=message_id
+                )
+            except Exception as error:
+                delete_failed = True
+                logger.warning("ready: could not delete photo %s: %s", message_id, error)
+        try:
+            await query.delete_message()
         except Exception:
-            logger.warning("ready: applicant notification could not be delivered")
+            try:
+                await context.bot.delete_message(
+                    chat_id=record["group_chat_id"], message_id=record["kb_msg_id"]
+                )
+            except Exception:
+                delete_failed = True
+
+        if not delete_failed:
+            context.bot_data.get("applications", {}).pop(key, None)
+            # Do not remove a legacy applicant entry belonging to another
+            # application; remove only this exact identity alias.
+            context.bot_data.get("app_messages", {}).pop(key, None)
+            context.bot_data.get("progress_state", {}).pop(key, None)
+        else:
+            await query.message.reply_text(
+                "✅ Arxivlandi, ammo ayrim asl xabarlarni o‘chirishda xatolik "
+                "bo‘ldi. Ular saqlab qolindi."
+            )
         return
 
     if action == "progress":
         key, record = resolved
         progress_state = context.bot_data.setdefault("progress_state", {})
-        new_state = not progress_state.get(key, False)
+        if progress_state.get(key, False):
+            await query.answer("Jarayon allaqachon boshlangan 🟡", show_alert=False)
+            return
+        progress_state[key] = True
         try:
-            await with_keyboard_fallback(query.edit_message_reply_markup,
-                reply_markup=build_operator_keyboard(applicant_id, in_progress=new_state, review=is_review_record(record))
+            await query.edit_message_reply_markup(
+                reply_markup=build_operator_keyboard(
+                    applicant_id, in_progress=True,
+                    review=record.get("queue_kind") == "otherpark",
+                )
             )
         except Exception:
             logger.warning("progress: could not update keyboard for %s", key)
-            await query.message.reply_text("Holatni yangilab bo‘lmadi. Qayta urinib ko‘ring.")
-            return
-        progress_state[key] = new_state
         return
-
 
     if action == "comment":
-        await query.message.reply_text(
-            "«Izoh berish» o‘rniga endi «Chala rasm» va «Boshqa park» tugmalaridan foydalaning."
+        # For an original keyboard, exact resolution is required.  For a
+        # comment-only reply, operator_message_links supplies that resolution.
+        if resolved is None:
+            await query.message.reply_text(
+                "⚠️ Bu izoh tugmasining arizasi topilmadi. Izoh yuborilmadi."
+            )
+            return
+        key, record = resolved
+        pending = context.bot_data.setdefault("pending_comments", {})
+        pending_key = (chat.id, operator.id)
+        pending[pending_key] = key
+        ap_name = h(
+            record.get("applicant_name")
+            or context.bot_data.get("applicant_info", {}).get(applicant_id, {}).get(
+                "name"
+            )
+            or "Arizachi"
         )
-        if resolved:
-            key, record = resolved
-            markup = (build_operator_keyboard(
-                applicant_id, context.bot_data.get("progress_state", {}).get(key, False), review=is_review_record(record)
-            ) if query.message.message_id == record["kb_msg_id"] else None)
-            await query.edit_message_reply_markup(reply_markup=markup)
-        return
+        username = record.get("username") or context.bot_data.get(
+            "applicant_info", {}
+        ).get(applicant_id, {}).get("username", "")
+        applicant_link = (
+            f'<a href="https://t.me/{username}">{ap_name} (@{h(username)})</a>'
+            if username
+            else f'<a href="tg://user?id={applicant_id}">{ap_name}</a>'
+        )
+        prompt = await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                f"💬 <b>Izoh kiriting</b> → {applicant_link}\n"
+                f"📍 <b>{h(_branch(record))}</b>\n"
+                f"👤 Operator: {h(op_name)}\n\nBekor qilish uchun: /bekor"
+            ),
+            parse_mode="HTML",
+            reply_to_message_id=query.message.message_id,
+        )
+        context.bot_data.setdefault("pending_prompts", {})[pending_key] = prompt.message_id
 
 
 async def on_operator_text_in_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1030,8 +1017,6 @@ async def on_user_reply_message(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 def register_operator_handlers(app):
-    from bot.background_download import register_handlers as register_download_handlers
-    register_download_handlers(app)
     app.add_handler(CommandHandler(
         "tugmasiz", remove_buttons_command, filters=filters.ChatType.GROUPS,
     ))

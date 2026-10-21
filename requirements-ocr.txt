@@ -1,2 +1,0 @@
-# Optional local CPU text detector/recognizer, bundled ONNX models.
-rapidocr_onnxruntime==1.4.4

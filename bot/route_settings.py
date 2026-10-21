@@ -11,7 +11,6 @@ def regional_keys(prefix):
         "brand": f"{prefix}_BRAND_GROUP",
         "spectre": f"{prefix}_SPECTRE_GROUP",
         "archive": f"{prefix}_ARCHIVE_GROUP",
-        "incomplete": f"{prefix}_INCOMPLETE_GROUP",
         "otherpark": f"{prefix}_OTHER_PARK_GROUP",
     }
 
@@ -19,7 +18,8 @@ TASHKENT_KEYS = regional_keys("TASHKENT")
 ANDIJON_KEYS = regional_keys("ANDIJON")
 ROUTE_KEYS = {*TASHKENT_KEYS.values(), *ANDIJON_KEYS.values()}
 # Ignore retired routes in an existing settings file; never use them.
-RETIRED_KEYS = {"NAMANGAN_SPECTRE_GROUP"}
+RETIRED_KEYS = {"NAMANGAN_SPECTRE_GROUP", "ANDIJON_INCOMPLETE_GROUP",
+                "TASHKENT_INCOMPLETE_GROUP"}
 
 
 def settings_path() -> Path:

@@ -51,17 +51,3 @@ Thumbs.db
 # Machine-local Telegram routing (never upload operational group IDs).
 bot_routes.json
 .bot_routes-*.tmp
-
-# Private configuration, driver records, local environments and generated data.
-.env
-.env.*
-!.env.example
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-bot_persistence.pkl
-bot_persistence.key
-.state-*
-application_numbers.sqlite3*
-visual_templates/

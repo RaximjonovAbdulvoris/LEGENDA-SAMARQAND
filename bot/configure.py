@@ -15,11 +15,11 @@ LABELS = {
     "driver3": "Haydovchi 3-guruh",
     "driver4": "Haydovchi 4-guruh",
     "brand": "Brend guruhi",
-    "spectre": "Spectre Energy guruhi",
+    "spectre": "Spectre guruhi",
+    "otherpark": "Boshqa park guruhi",
     "archive": "Arxiv guruhi",
-    "incomplete": "Chala rasm guruhi (keyinroq sozlash mumkin)",
-    "otherpark": "Boshqa park guruhi (keyinroq sozlash mumkin)",
 }
+OPTIONAL = {"spectre", "otherpark"}
 
 
 async def check_routes(scope: str = "tashkent") -> int:
@@ -36,7 +36,8 @@ async def check_routes(scope: str = "tashkent") -> int:
             **{f"andijon_{name}": key for name, key in ANDIJON_KEYS.items()},
         },
     }[scope]
-    routes = {name: destination(key) for name, key in scoped_keys.items()}
+    routes = {name: destination(key) for name, key in scoped_keys.items()
+              if name.rsplit('_', 1)[-1] not in OPTIONAL or destination(key)}
     failures = 0
     for name, value in routes.items():
         try:
@@ -116,14 +117,14 @@ def main(argv=None) -> int:
         if not changes:
             print("Mavjud IDni saqlash uchun Enter bosing. Token kiritmang.")
             for name, key in keys.items():
-                current = destination(key)
-                if name in ('incomplete', 'otherpark', 'spectre'):
+                if name in OPTIONAL:
                     continue
+                current = destination(key)
                 answer = input(f"{LABELS[name]} [{current or 'sozlanmagan'}]: ").strip()
                 changes[key] = answer or current
         # Validate the complete effective setup before saving any change.
         for name, key in keys.items():
-            if name in ('incomplete', 'otherpark', 'spectre') and not changes.get(key, destination(key)):
+            if name in OPTIONAL and not changes.get(key, destination(key)):
                 continue
             validate(key, changes.get(key, destination(key)))
         save_settings(changes)

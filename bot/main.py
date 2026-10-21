@@ -9,13 +9,12 @@ from telegram.ext import (
 from telegram.request import HTTPXRequest
 
 from bot.config import BOT_TOKEN
-from bot.premium_emoji import PremiumEmojiBot
 from bot.brand_cleanup import remove_legacy_brand_keyboards
 from bot.handlers.brand import build_brand_conversation
 from bot.handlers.driver import build_driver_conversation
-from bot.handlers.operator import on_user_reply_message, register_operator_handlers, refresh_driver_keyboards
+from bot.handlers.operator import on_user_reply_message, register_operator_handlers
 from bot.handlers.start import (
-    MENU_BRAND, MENU_CONTACT, MENU_DRIVER, MENU_OFFICE, MENU_REGION,
+    MENU_BRAND, MENU_SPECTRE, MENU_CONTACT, MENU_DRIVER, MENU_OFFICE, MENU_REGION,
     build_contact_handler, build_office_handler, build_region_handler, cancel,
     show_menu, start,
 )
@@ -28,12 +27,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-MENU_ACTIONS = {MENU_DRIVER, MENU_BRAND, MENU_CONTACT, MENU_OFFICE,
-                MENU_REGION, "📝 Ulanish uchun Ariza", "🚕 Ulanish uchun Ariza", "🎨 Brend Ariza",
-                "📞 Bog'lanish uchun", "📱 Bog'lanish uchun", "📍 Ofis manzili",
-                "⚡ Spectre Energyga ariza", "🔄 Hududni almashtirish"}
-MENU_ACTIONS.update({"Ulanish uchun Ariza", "Brend Ariza", "Bog'lanish uchun",
-                     "Ofis manzili", "Hududni almashtirish", "Spectre Energyga ariza"})
+MENU_ACTIONS = {MENU_DRIVER, MENU_BRAND, MENU_SPECTRE, MENU_CONTACT, MENU_OFFICE, MENU_REGION}
 
 
 async def intercept_pending_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -42,8 +36,6 @@ async def intercept_pending_reply(update: Update, context: ContextTypes.DEFAULT_
         return
     pending = context.bot_data.get("pending_user_replies", {})
     user_id = update.effective_user.id
-    logger.info("Private update received: update=%s pending_relay=%s",
-                getattr(update, 'update_id', None), user_id in pending)
     if user_id not in pending:
         return
     text = update.message.text or ""
@@ -52,8 +44,6 @@ async def intercept_pending_reply(update: Update, context: ContextTypes.DEFAULT_
         pending.pop(user_id, None)
         return
     await on_user_reply_message(update, context)
-    logger.info("Private update routed to operator relay: update=%s",
-                getattr(update, 'update_id', None))
     raise ApplicationHandlerStop
 
 
@@ -66,13 +56,12 @@ def build_application_conversation() -> ConversationHandler:
     navigation = [
         CommandHandler("start", start, filters.ChatType.PRIVATE),
         CommandHandler("cancel", cancel, filters.ChatType.PRIVATE),
-        MessageHandler(filters.ChatType.PRIVATE & filters.Regex(r"^(?:🔄 )?Hududni almashtirish$"), start),
+        MessageHandler(filters.ChatType.PRIVATE & filters.Regex(f"^{MENU_REGION}$"), start),
         build_contact_handler(),
         build_office_handler(),
     ]
     return ConversationHandler(
         entry_points=navigation + driver.entry_points + brand.entry_points,
-        name="application_form", persistent=True,
         states={**driver.states, **brand.states},
         fallbacks=navigation,
         allow_reentry=True,
@@ -87,8 +76,6 @@ async def stale_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 def register_handlers(app) -> None:
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE, intercept_pending_reply), group=-1)
-    from bot.asset_ids import asset_id
-    app.add_handler(CommandHandler("asset_id", asset_id, filters.ChatType.PRIVATE))
     app.add_handler(build_region_handler())
     app.add_handler(build_application_conversation())
     register_operator_handlers(app)
@@ -118,10 +105,10 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if isinstance(err, (NetworkError, TimedOut)):
-        logger.warning("Network/Timeout while polling (%s)", type(err).__name__)
+        logger.warning("Network/Timeout while polling: %s", err)
         return
 
-    logger.error("Unhandled error (%s)", type(err).__name__)
+    logger.error("Unhandled error: %s", err, exc_info=err)
     try:
         if isinstance(update, Update) and update.effective_chat:
             await context.bot.send_message(
@@ -136,24 +123,8 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def post_init(application) -> None:
-    from bot.template_cards import create_instruction_cards
-    try:
-        create_instruction_cards()
-    except Exception:
-        logger.warning("Instruction cards unavailable; text prompts will be used.")
-    from bot.presentation import load_emoji_packs
-    await load_emoji_packs(application)
+    await remove_legacy_brand_keyboards(application)
     await warmup_templates(application)
-    # Legacy button callbacks remain supported. Rewriting thousands of old
-    # keyboards on every restart saturates Telegram requests and delays live
-    # operator callbacks, so leave them in place until an operator acts.
-    application.job_queue.run_once(refresh_operator_controls, when=2)
-    from bot.background_ocr import resume_pending
-    application.job_queue.run_repeating(resume_pending, interval=15, first=0)
-
-
-async def refresh_operator_controls(context) -> None:
-    await remove_legacy_brand_keyboards(context.application)
 
 
 def main() -> None:
@@ -173,14 +144,17 @@ def main() -> None:
 
     import os
     persist_path = os.path.join(os.environ.get("PERSIST_DIR", "."), "bot_persistence.pkl")
+    # Current live state is encrypted; keep its reader while restoring the
+    # original bot interface and operator flow.
     from bot.secure_persistence import SecurePersistence
     persistence = SecurePersistence(filepath=persist_path)
 
     app = (
         Application.builder()
-        .bot(PremiumEmojiBot(BOT_TOKEN, request=request,
-                             get_updates_request=get_updates_request))
+        .token(BOT_TOKEN)
         .persistence(persistence)
+        .request(request)
+        .get_updates_request(get_updates_request)
         .post_init(post_init)
         .build()
     )

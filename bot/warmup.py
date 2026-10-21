@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 TEMPLATE_NAMES = [
     "passport_front",
+    "passport_back",
     "license_front",
     "license_back",
     "tech_front",
@@ -51,8 +52,6 @@ async def warmup_templates(app: Application) -> None:
     warmup_chat = groups[0]
     cache: dict[str, str] = app.bot_data.setdefault("template_file_ids", {})
     hashes: dict[str, str] = app.bot_data.setdefault("template_file_hashes", {})
-    cache.pop("passport_back", None)
-    hashes.pop("passport_back", None)
 
     for name in TEMPLATE_NAMES:
         path = template_path(name)
