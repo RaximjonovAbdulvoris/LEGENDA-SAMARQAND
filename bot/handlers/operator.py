@@ -6,12 +6,14 @@ application: one applicant can have more than one regional application at the
 same time.
 """
 import logging
+from copy import deepcopy
 from html import escape as h
 
 from telegram import InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from bot.regions import archive_group, region_name
+from bot.route_settings import destination
 from bot.brand_cleanup import is_plain_application_message, remove_buttons_command
 
 logger = logging.getLogger(__name__)
@@ -21,13 +23,21 @@ logger = logging.getLogger(__name__)
 _ARCHIVES_IN_FLIGHT: set[tuple[int, int]] = set()
 
 READY_TEXT = (
-    "✅ <b>WB HUMO arizangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+    "✅ <b>WB LEGENDA arizangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
     "📞 Tez orada operatorlarimiz siz bilan bog‘lanishadi."
+)
+OTHER_PARK_TEXT = (
+    "🚕 <b>Arizangiz bo‘yicha ma’lumot</b>\n\n"
+    "Arizangiz ko‘rib chiqildi. Boshqa taksopark orqali ro‘yxatdan "
+    "o‘tganingiz sababli sizni hozircha WB LEGENDA bazasiga qo‘sha olmadik. "
+    "Iltimos, avval ro‘yxatdan o‘tgan taksoparkingiz bilan bog‘lanib, "
+    "parkni almashtirish masalasini hal qiling.\n\n"
+    "Yordam uchun: +998 78 150-50-50."
 )
 
 
 def build_operator_keyboard(
-    applicant_user_id: int, in_progress: bool = False
+    applicant_user_id: int, in_progress: bool = False, review: bool = False
 ) -> InlineKeyboardMarkup:
     """The original keyboard contract used by the existing form workers."""
     progress_btn = InlineKeyboardButton(
@@ -45,6 +55,9 @@ def build_operator_keyboard(
                 ),
             ],
             [progress_btn],
+            *([] if review else [[InlineKeyboardButton(
+                "🚕 Boshqa park", callback_data=f"op:otherpark:{applicant_user_id}"
+            )]]),
         ]
     )
 
@@ -111,7 +124,7 @@ def _legacy_record(applicant_id: int, value: dict) -> dict:
     """Normalize the old driver's app_messages[user_id] shape."""
     record = dict(value)
     record.setdefault("applicant_id", int(applicant_id))
-    record.setdefault("region", "namangan")
+    record.setdefault("region", "andijon")
     record.setdefault("kind", "driver")
     record.setdefault("applicant_name", "")
     record.setdefault("username", "")
@@ -310,6 +323,9 @@ async def _archive_application_locked(bot, record: dict, destination: str) -> bo
                             len(pending_ids),
                         )
                     else:
+                        dest_ids = [getattr(item, "message_id", None) for item in result]
+                        if all(isinstance(mid, int) and mid > 0 for mid in dest_ids):
+                            batch["destination_message_ids"] = dest_ids
                         for message_id in pending_ids:
                             copied_photos[str(message_id)] = True
                 except Exception as error:
@@ -324,10 +340,13 @@ async def _archive_application_locked(bot, record: dict, destination: str) -> bo
                     chat_id=destination,
                     from_chat_id=source,
                     message_id=record["kb_msg_id"],
+                    reply_markup=record.get("_copy_markup"),
                 )
                 if copied is None:
                     raise RuntimeError("Telegram did not confirm the keyboard copy")
                 state["kb"] = True
+                if isinstance(getattr(copied, "message_id", None), int):
+                    state["destination_kb_id"] = copied.message_id
             except Exception as error:
                 failed = True
                 logger.warning("archive: keyboard message failed: %s", error)
@@ -351,6 +370,112 @@ def _album_chunks(items: list[dict]) -> list[list[dict]]:
         chunks.append(remaining[:size])
         remaining = remaining[size:]
     return chunks
+
+
+async def _save_transfer(context) -> bool:
+    application = getattr(context, "application", None)
+    if application is None or application.persistence is None:
+        return True
+    try:
+        await application.update_persistence()
+        await application.persistence.flush()
+        return True
+    except Exception:
+        logger.exception("other park: state could not be saved")
+        return False
+
+
+def _moved_photo_ids(record, state):
+    albums = record.get("media_albums")
+    if albums is None:
+        batch = state.get("photo_batch", {})
+        ids = batch.get("destination_message_ids", [])
+        return ids if len(ids) == len(record.get("photo_msg_ids", [])) else []
+    ids = []
+    for album_index, album in enumerate(albums):
+        for chunk_index, chunk in enumerate(_album_chunks(album["photos"])):
+            current = state.get("albums", {}).get(f"{album_index}:{chunk_index}", {})
+            chunk_ids = current.get("destination_message_ids", [])
+            if len(chunk_ids) != len(chunk):
+                return []
+            ids.extend(chunk_ids)
+    return ids
+
+
+async def _finish_other_park(context, source_key, source, target):
+    if not await _save_transfer(context):
+        return False
+    state = source["other_park_state"]
+    deleted = state.setdefault("deleted_source_ids", [])
+    for mid in [*source.get("photo_msg_ids", []), source["kb_msg_id"]]:
+        if mid in deleted:
+            continue
+        try:
+            await context.bot.delete_message(chat_id=source["group_chat_id"], message_id=mid)
+        except Exception:
+            logger.warning("other park: source cleanup failed for %s", source_key)
+            return False
+        deleted.append(mid)
+    for store in ("applications", "app_messages"):
+        context.bot_data.get(store, {}).pop(source_key, None)
+    context.bot_data.get("progress_state", {}).pop(source_key, None)
+    if not await _save_transfer(context):
+        return False
+    if not target.get("other_park_notified"):
+        try:
+            await context.bot.send_message(
+                chat_id=target["applicant_id"], text=OTHER_PARK_TEXT, parse_mode="HTML",
+            )
+            target["other_park_notified"] = True
+            await _save_transfer(context)
+        except Exception:
+            logger.warning("other park: applicant notice failed for %s", source_key)
+    return True
+
+
+async def _move_other_park(context, source_key, source):
+    region = source.get("region")
+    if region not in ("andijon", "tashkent"):
+        return False
+    group = destination(f"{region.upper()}_OTHER_PARK_GROUP")
+    if not group or str(group) == str(source.get("group_chat_id")):
+        return False
+    saved = source.get("other_park_destination")
+    if saved and str(saved) != str(group):
+        return False
+    source["other_park_destination"] = str(group)
+    if source.get("other_park_child"):
+        child = _record_for_key(context, source["other_park_child"])
+        return bool(child) and await _finish_other_park(context, source_key, source, child)
+
+    state = source.setdefault("other_park_state", {"photos": {}, "kb": False})
+    shadow = dict(source, archive_state=state,
+                  _copy_markup=build_operator_keyboard(source["applicant_id"], review=True))
+    if not await _archive_application(context.bot, shadow, str(group)):
+        return False
+    ids = _moved_photo_ids(source, state)
+    kb_id = state.get("destination_kb_id")
+    if (not ids or len(ids) != len(set(ids))
+            or any(not isinstance(mid, int) or mid <= 0 for mid in ids)
+            or not isinstance(kb_id, int) or kb_id <= 0):
+        return False
+    albums = deepcopy(source.get("media_albums"))
+    if albums is not None:
+        index = 0
+        for album in albums:
+            size = len(album["photos"])
+            album["source_message_ids"] = ids[index:index + size]
+            index += size
+    child_key = register_application(
+        context, applicant_id=source["applicant_id"], region=region, kind="driver",
+        group_chat_id=int(group), photo_msg_ids=ids, kb_msg_id=kb_id,
+        applicant_name=source.get("applicant_name", ""),
+        username=source.get("username", ""), media_albums=albums,
+    )
+    child = _record_for_key(context, child_key)
+    child["queue_kind"] = "otherpark"
+    source["other_park_child"] = child_key
+    return await _finish_other_park(context, source_key, source, child)
 
 
 async def _archive_reconstructed_albums(
@@ -422,6 +547,7 @@ async def _archive_reconstructed_albums(
                     )
                     if sent is None:
                         raise RuntimeError("Telegram did not confirm photo send")
+                    sent_ids = [getattr(sent, "message_id", None)]
                 else:
                     media = [
                         InputMediaPhoto(
@@ -450,8 +576,10 @@ async def _archive_reconstructed_albums(
                         )
                         failed = True
                         continue
+                    sent_ids = [getattr(message, "message_id", None) for message in sent]
                 checkpoint.clear()
                 checkpoint["status"] = "complete"
+                checkpoint["destination_message_ids"] = sent_ids
             except Exception as error:
                 # Exceptions have no successful Bot API response and remain
                 # retryable.  A malformed successful response above does not.
@@ -466,10 +594,13 @@ async def _archive_reconstructed_albums(
                 chat_id=destination,
                 from_chat_id=record["group_chat_id"],
                 message_id=record["kb_msg_id"],
+                reply_markup=record.get("_copy_markup"),
             )
             if copied is None:
                 raise RuntimeError("Telegram did not confirm the keyboard copy")
             state["kb"] = True
+            if isinstance(getattr(copied, "message_id", None), int):
+                state["destination_kb_id"] = copied.message_id
         except Exception as error:
             failed = True
             logger.warning("archive: keyboard message failed: %s", error)
@@ -542,10 +673,43 @@ async def on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    if action in ("ready", "progress") and resolved is None:
+    if action in ("incomplete", "delete", "download"):
+        # Buttons on applications posted by the temporary version are no
+        # longer part of the classic operator flow. Refresh only the clicked
+        # message, avoiding thousands of Telegram edits at startup.
+        if resolved is not None:
+            key, record = resolved
+            try:
+                await query.edit_message_reply_markup(
+                    reply_markup=build_operator_keyboard(
+                        applicant_id,
+                        in_progress=context.bot_data.get("progress_state", {}).get(key, False),
+                        review=record.get("queue_kind") == "otherpark",
+                    )
+                )
+            except Exception:
+                logger.warning("Legacy operator buttons could not be refreshed")
+        await query.message.reply_text(
+            "Bu tugma olib tashlangan. Tayyor, Izoh, Jarayonda yoki Boshqa park tugmasidan foydalaning."
+        )
+        return
+
+    if action in ("ready", "progress", "otherpark") and resolved is None:
         await query.message.reply_text(
             "⚠️ Bu tugma boshqa yoki eski arizaga tegishli. Ariza o‘zgartirilmadi."
         )
+        return
+
+    if action == "otherpark":
+        key, record = resolved
+        if record.get("queue_kind") == "otherpark":
+            await query.message.reply_text("Bu ariza allaqachon «Boshqa park» guruhida.")
+            return
+        if not await _move_other_park(context, key, record):
+            await query.message.reply_text(
+                "⚠️ Arizani «Boshqa park» guruhiga to‘liq ko‘chirish tasdiqlanmadi. "
+                "Asl ariza saqlandi. Guruh sozlamasi va bot huquqlarini tekshirib, qayta bosing."
+            )
         return
 
     if action == "ready":
@@ -640,7 +804,8 @@ async def on_operator_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             await query.edit_message_reply_markup(
                 reply_markup=build_operator_keyboard(
-                    applicant_id, in_progress=True
+                    applicant_id, in_progress=True,
+                    review=record.get("queue_kind") == "otherpark",
                 )
             )
         except Exception:
@@ -715,7 +880,7 @@ async def on_operator_text_in_group(update: Update, context: ContextTypes.DEFAUL
         sent = await context.bot.send_message(
             chat_id=applicant_id,
             text=(
-                f"💬 <b>WB HUMO — operator izohi</b>\n"
+                f"💬 <b>WB LEGENDA — operator izohi</b>\n"
                 f"📍 <b>{h(_branch(record))}</b>\n\n{h(text)}"
             ),
             parse_mode="HTML",

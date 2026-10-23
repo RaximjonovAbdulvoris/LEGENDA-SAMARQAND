@@ -115,7 +115,7 @@ class ArchiveAlbumTests(unittest.IsolatedAsyncioTestCase):
         return operator.register_application(
             context,
             applicant_id=9,
-            region="namangan",
+            region="andijon",
             kind=kind,
             group_chat_id=100,
             photo_msg_ids=(
@@ -204,7 +204,7 @@ class ArchiveAlbumTests(unittest.IsolatedAsyncioTestCase):
                     9: {
                         "applicant_id": 9,
                         "kind": kind,
-                        "region": "namangan",
+                        "region": "andijon",
                         "group_chat_id": 100,
                         "photo_msg_ids": [21],
                         "kb_msg_id": 20,

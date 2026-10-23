@@ -14,7 +14,8 @@ from io import BytesIO
 
 from telegram.ext import Application
 
-from bot.config import DRIVER_GROUPS, TEMPLATES_DIR, template_path
+from bot.config import TEMPLATES_DIR, template_path
+from bot.regions import ANDIJON, TASHKENT, driver_groups
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +37,19 @@ TEMPLATE_NAMES = [
 
 async def warmup_templates(app: Application) -> None:
     """Pre-upload templates and cache file_ids."""
-    if not DRIVER_GROUPS:
+    # Telegram file IDs belong to the bot that uploaded them. Keep application
+    # records, but never reuse photo IDs after migrating to another bot.
+    if app.bot_data.get("photo_cache_bot_id") != app.bot.id:
+        for key in ("template_file_ids", "template_file_hashes",
+                    "tashkent_office_photo_file_id", "tashkent_office_photo_hash"):
+            app.bot_data.pop(key, None)
+        app.bot_data["photo_cache_bot_id"] = app.bot.id
+    groups = driver_groups(ANDIJON) or driver_groups(TASHKENT)
+    if not groups:
         logger.warning("warmup: DRIVER_GROUPS empty, skipping")
         return
 
-    warmup_chat = DRIVER_GROUPS[0]
+    warmup_chat = groups[0]
     cache: dict[str, str] = app.bot_data.setdefault("template_file_ids", {})
     hashes: dict[str, str] = app.bot_data.setdefault("template_file_hashes", {})
 
