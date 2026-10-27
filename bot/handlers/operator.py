@@ -12,7 +12,7 @@ from html import escape as h
 from telegram import InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from bot.regions import archive_group, region_name
+from bot.regions import archive_group, region_name, REGION_NAMES
 from bot.route_settings import destination
 from bot.brand_cleanup import is_plain_application_message, remove_buttons_command
 
@@ -435,7 +435,7 @@ async def _finish_other_park(context, source_key, source, target):
 
 async def _move_other_park(context, source_key, source):
     region = source.get("region")
-    if region not in ("andijon", "tashkent"):
+    if region not in REGION_NAMES:
         return False
     group = destination(f"{region.upper()}_OTHER_PARK_GROUP")
     if not group or str(group) == str(source.get("group_chat_id")):

@@ -15,7 +15,7 @@ from io import BytesIO
 from telegram.ext import Application
 
 from bot.config import TEMPLATES_DIR, template_path
-from bot.regions import ANDIJON, TASHKENT, driver_groups
+from bot.regions import ANDIJON, TASHKENT, FARGONA, driver_groups
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def warmup_templates(app: Application) -> None:
                     "tashkent_office_photo_file_id", "tashkent_office_photo_hash"):
             app.bot_data.pop(key, None)
         app.bot_data["photo_cache_bot_id"] = app.bot.id
-    groups = driver_groups(ANDIJON) or driver_groups(TASHKENT)
+    groups = driver_groups(ANDIJON) or driver_groups(TASHKENT) or driver_groups(FARGONA)
     if not groups:
         logger.warning("warmup: DRIVER_GROUPS empty, skipping")
         return

@@ -5,7 +5,7 @@ import logging
 import os
 
 from bot.route_settings import (
-    ANDIJON_KEYS, TASHKENT_KEYS, destination, read_settings, save_settings,
+    ANDIJON_KEYS, TASHKENT_KEYS, FARGONA_KEYS, destination, read_settings, save_settings,
     settings_path, validate,
 )
 
@@ -31,9 +31,11 @@ async def check_routes(scope: str = "tashkent") -> int:
     scoped_keys = {
         "tashkent": TASHKENT_KEYS,
         "andijon": ANDIJON_KEYS,
+        "fargona": FARGONA_KEYS,
         "all": {
             **{f"tashkent_{name}": key for name, key in TASHKENT_KEYS.items()},
             **{f"andijon_{name}": key for name, key in ANDIJON_KEYS.items()},
+            **{f"fargona_{name}": key for name, key in FARGONA_KEYS.items()},
         },
     }[scope]
     routes = {name: destination(key) for name, key in scoped_keys.items()
@@ -92,10 +94,13 @@ def main(argv=None) -> int:
     andijon = commands.add_parser("andijon", help="Andijon guruhlarini sozlash")
     for name in ANDIJON_KEYS:
         andijon.add_argument(f"--{name}", help=LABELS[name])
+    fargona = commands.add_parser("fargona", help="Farg‘ona guruhlarini sozlash")
+    for name in FARGONA_KEYS:
+        fargona.add_argument(f"--{name}", help=LABELS[name])
     commands.add_parser("show", help="Amaldagi IDlar va ularning manbasini ko'rish")
     check = commands.add_parser("check", help="Token, guruhlar va bot ruxsatlarini tekshirish")
     check.add_argument(
-        "--scope", choices=("tashkent", "andijon", "all"), default="tashkent",
+        "--scope", choices=("tashkent", "andijon", "fargona", "all"), default="tashkent",
         help="Tekshiriladigan shahar (standart: tashkent)",
     )
     args = parser.parse_args(argv)
@@ -105,11 +110,11 @@ def main(argv=None) -> int:
         if args.command == "show":
             local = read_settings()
             print(f"Sozlama fayli: {settings_path()}")
-            for key in (*TASHKENT_KEYS.values(), *ANDIJON_KEYS.values()):
+            for key in (*TASHKENT_KEYS.values(), *ANDIJON_KEYS.values(), *FARGONA_KEYS.values()):
                 source = "CMD/fayl" if key in local else "muhit"
                 print(f"{key}: {destination(key) or 'sozlanmagan'} ({source})")
             return 0
-        keys = TASHKENT_KEYS if args.command == "tashkent" else ANDIJON_KEYS
+        keys = {"tashkent": TASHKENT_KEYS, "andijon": ANDIJON_KEYS, "fargona": FARGONA_KEYS}[args.command]
         changes = {
             key: getattr(args, name) for name, key in keys.items()
             if getattr(args, name) is not None

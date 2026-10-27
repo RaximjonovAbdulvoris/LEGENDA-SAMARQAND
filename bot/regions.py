@@ -4,7 +4,8 @@ from bot.route_settings import destination
 
 ANDIJON = "andijon"
 TASHKENT = "tashkent"
-REGION_NAMES = {TASHKENT: "Toshkent shahri", ANDIJON: "Andijon shahri"}
+FARGONA = "fargona"
+REGION_NAMES = {TASHKENT: "Toshkent shahri", ANDIJON: "Andijon shahri", FARGONA: "Farg‘ona shahri"}
 
 
 def get_region(context) -> str | None:
@@ -27,9 +28,9 @@ def driver_groups(region: str) -> list[str]:
     if region == ANDIJON:
         return [value for i, fallback in enumerate(DRIVER_GROUPS, 1)
                 if (value := destination(f"ANDIJON_DRIVER_GROUP_{i}", fallback))]
-    if region == TASHKENT:
+    if region in (TASHKENT, FARGONA):
         return [value for i in range(1, 5)
-                if (value := destination(f"TASHKENT_DRIVER_GROUP_{i}"))]
+                if (value := destination(f"{region.upper()}_DRIVER_GROUP_{i}"))]
     return []
 
 
@@ -40,14 +41,14 @@ def application_group(region: str, kind: str) -> str:
         return ""
     if region == ANDIJON:
         return destination("ANDIJON_BRAND_GROUP", BRAND_GROUP)
-    if region == TASHKENT:
-        return destination("TASHKENT_BRAND_GROUP")
+    if region in (TASHKENT, FARGONA):
+        return destination(f"{region.upper()}_BRAND_GROUP")
     return ""
 
 
 def archive_group(region: str) -> str:
     if region == ANDIJON:
         return destination("ANDIJON_ARCHIVE_GROUP", ARCHIVE_GROUP)
-    if region == TASHKENT:
-        return destination("TASHKENT_ARCHIVE_GROUP")
+    if region in (TASHKENT, FARGONA):
+        return destination(f"{region.upper()}_ARCHIVE_GROUP")
     return ""

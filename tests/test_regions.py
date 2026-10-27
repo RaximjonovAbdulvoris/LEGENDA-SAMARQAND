@@ -65,7 +65,7 @@ class RegionalTests(unittest.IsolatedAsyncioTestCase):
         buttons = calls[1].kwargs["reply_markup"].inline_keyboard
         self.assertEqual(
             [button.text for row in buttons for button in row],
-            ["Toshkent shahri", "Andijon shahri"],
+            ["Toshkent shahri", "Andijon shahri", "Farg‘ona shahri"],
         )
         nonce = ctx.user_data["region_choice_nonce"]
         self.assertEqual(
@@ -288,6 +288,7 @@ class NoSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {
             "ANDIJON_DRIVER_GROUP_1": "-101", "TASHKENT_DRIVER_GROUP_1": "-201",
             "ANDIJON_BRAND_GROUP": "-102", "TASHKENT_BRAND_GROUP": "-202",
+            "FARGONA_DRIVER_GROUP_1": "-301", "FARGONA_BRAND_GROUP": "-302",
         }):
             for city in regions.REGION_NAMES:
                 for handler, state in ((driver.start_driver, driver.NAME), (brand.start_brand, brand.BRAND_WARN)):

@@ -6,7 +6,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 from bot.regions import (
-    ANDIJON, TASHKENT, REGION_NAMES, clear_application, get_region, region_name,
+    ANDIJON, TASHKENT, FARGONA, REGION_NAMES, clear_application, get_region, region_name,
 )
 
 MENU_DRIVER = "📝 Ulanish uchun Ariza"
@@ -178,7 +178,8 @@ async def show_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
     clear_application(context)
     region = get_region(context)
-    text = TASHKENT_CONTACT_TEXT if region == TASHKENT else CONTACT_TEXT
+    text = {TASHKENT: TASHKENT_CONTACT_TEXT, ANDIJON: CONTACT_TEXT,
+            FARGONA: "<b>WB LEGENDA (FARG‘ONA)</b>\n\nFarg‘ona uchun aloqa ma’lumotlari tez orada qo‘shiladi."}[region]
     await update.message.reply_text(
         text,
         parse_mode="HTML",
@@ -196,6 +197,9 @@ async def show_office(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if not await require_region(update, context):
         return ConversationHandler.END
     clear_application(context)
+    if get_region(context) == FARGONA:
+        await update.message.reply_text("📍 Farg‘ona ofis manzili tez orada qo‘shiladi.")
+        return ConversationHandler.END
     if get_region(context) == TASHKENT:
         photo_path, caption, keyboard = (
             TASHKENT_OFFICE_PHOTO, TASHKENT_OFFICE_TEXT, TASHKENT_OFFICE_KEYBOARD,
