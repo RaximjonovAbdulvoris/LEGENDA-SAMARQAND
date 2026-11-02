@@ -9,7 +9,6 @@ from telegram import (
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
-    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     ConversationHandler,
@@ -30,16 +29,12 @@ from bot.regions import (
     get_region,
     region_name,
 )
-from bot.subscription import require_subscription, subscription_keyboard
 
 logger = logging.getLogger(__name__)
 
 BRAND_WARN, BRAND_NAME, BRAND_PHONE, BRAND_MODEL, BRAND_YEAR, BRAND_COLOR, BRAND_PLATE = range(100, 107)
-BRAND_JOIN = 107
 CONTINUE_BTN = "✅ Davom etish"
 CONTINUE_KB = ReplyKeyboardMarkup([[CONTINUE_BTN]], resize_keyboard=True, one_time_keyboard=True)
-BRAND_JOIN_KEYBOARD = subscription_keyboard("brand:check_membership")
-SPECTRE_JOIN_KEYBOARD = subscription_keyboard("spectre:check_membership")
 
 WARN_TEXT = (
     "⚠️ *DIQQAT! BRENDLASH SHARTLARI:*\n\n"
@@ -62,7 +57,7 @@ async def _require_region(update, context, allowed_regions=None) -> bool:
 
 
 def _kind(context) -> str:
-    return context.user_data.get("_application_kind", "brand")
+    return "spectre" if context.user_data.get("_application_kind") == "spectre" else "brand"
 
 
 def _kind_title(kind: str) -> str:
@@ -106,7 +101,7 @@ async def _start_application(
         await _destination_error(update, context, kind)
         clear_application(context)
         return ConversationHandler.END
-    return await check_membership(update, context)
+    return await begin_form(update, context)
 
 
 async def start_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -117,11 +112,9 @@ async def start_spectre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return await _start_application(update, context, "spectre")
 
 
-async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     kind = _kind(context)
-    callback = "spectre:check_membership" if kind == "spectre" else "brand:check_membership"
-    # The user may have changed branches while the subscription prompt was
-    # open.  Validate both branch and destination before collecting data.
+    # Validate the selected city and destination before collecting data.
     if not await _require_region(update, context):
         return ConversationHandler.END
     region = get_region(context)
@@ -131,14 +124,10 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _destination_error(update, context, kind)
         clear_application(context)
         return ConversationHandler.END
-    if not await require_subscription(update, context, callback_data=callback):
-        return BRAND_JOIN
     clear_application(context)
     context.user_data["_application_kind"] = kind
     context.user_data["_application_region"] = region
     if kind == "spectre":
-        # Spectre asks the same fields as Brand, but has no Brand eligibility
-        # restrictions or warning text.
         await _send_name_prompt(update, context)
         return BRAND_NAME
     await update.effective_message.reply_text(
@@ -261,7 +250,7 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return ConversationHandler.END
     # Recheck immediately before sending; an unset destination must never
-    # silently route this application to Namangan.
+    # silently route this application to Andijon.
     group_id = application_group(region, kind)
     if not group_id:
         await _destination_error(update, context, kind)
@@ -290,7 +279,7 @@ async def brand_get_plate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode=ParseMode.HTML,
             reply_markup=None,
         )
-        # Brand and Spectre stay in their destination groups as plain messages.
+        # Brand applications stay in their destination groups as plain messages.
     except Exception as error:
         logger.exception("brand: arizani guruhga yuborib bo‘lmadi: %s", error)
         clear_application(context)
@@ -316,13 +305,16 @@ async def wrong_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return context.user_data.get("_brand_state", BRAND_NAME)
 
 
-def _text_state(handler, state):
+def _text_state(handler, state, accepted=None):
     async def tracked(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["_brand_state"] = state
         return await handler(update, context)
+    async def wrong(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["_brand_state"] = state
+        return await wrong_text(update, context)
     return [
-        MessageHandler(filters.TEXT & ~filters.COMMAND, tracked),
-        MessageHandler(~filters.COMMAND, wrong_text),
+        MessageHandler(accepted if accepted is not None else filters.TEXT & ~filters.COMMAND, tracked),
+        MessageHandler(~filters.COMMAND, wrong),
     ]
 
 
@@ -339,24 +331,15 @@ def build_brand_conversation() -> ConversationHandler:
             ),
         ],
         states={
-            BRAND_JOIN: [
-                # Both application types use the same shared subscription
-                # gate; the callback's prefix is selected from user_data.
-                CallbackQueryHandler(
-                    check_membership,
-                    pattern=r"^(?:brand|spectre):check_membership$",
-                ),
-                MessageHandler(~filters.COMMAND, check_membership),
-            ],
             BRAND_WARN: [
                 MessageHandler(filters.Regex(f"^{CONTINUE_BTN}$"), brand_warn),
                 MessageHandler(~filters.COMMAND, brand_warn_wrong),
             ],
             BRAND_NAME: _text_state(brand_get_name, BRAND_NAME),
-            BRAND_PHONE: [
-                MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), brand_get_phone),
-                MessageHandler(~filters.COMMAND, wrong_text),
-            ],
+            BRAND_PHONE: _text_state(
+                brand_get_phone, BRAND_PHONE,
+                filters.CONTACT | (filters.TEXT & ~filters.COMMAND),
+            ),
             BRAND_MODEL: _text_state(brand_get_model, BRAND_MODEL),
             BRAND_YEAR: _text_state(brand_get_year, BRAND_YEAR),
             BRAND_COLOR: _text_state(brand_get_color, BRAND_COLOR),
