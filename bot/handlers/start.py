@@ -17,6 +17,7 @@ MENU_OFFICE = "📍 Ofis manzili"
 MENU_REGION = "🔄 Hududni almashtirish"
 OFFICE_PHOTO = Path(__file__).resolve().parents[1] / "templates" / "office.png"
 TASHKENT_OFFICE_PHOTO = OFFICE_PHOTO.with_name("office_tashkent.png")
+FARGONA_OFFICE_PHOTO = OFFICE_PHOTO.with_name("office_fargona.jpg")
 OFFICE_CAPTION = (
     "📍 <b>WB LEGENDA (ANDIJON OFISI)</b>\n\n"
     "Mo‘ljal: ZALATOY DOLINA MEXMONXONASI\n\n"
@@ -32,6 +33,14 @@ TASHKENT_OFFICE_TEXT = (
 )
 # No Toshkent map link was supplied; do not show the previous office's map.
 TASHKENT_OFFICE_KEYBOARD = None
+FARGONA_OFFICE_TEXT = (
+    "📍 <b>WB LEGENDA (FARG‘ONA)</b>\n\n"
+    "<b>Manzil:</b> Faravon klinikasi ko‘chasi,\n"
+    "1-oilaviy poliklinika yonida."
+)
+FARGONA_OFFICE_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("📍 Yandex xaritada ochish", url="https://yandex.uz/maps/-/CXrQIEpr")],
+])
 
 def main_keyboard(region: str) -> ReplyKeyboardMarkup:
     rows = [[MENU_DRIVER], [MENU_BRAND], [MENU_SPECTRE],
@@ -198,9 +207,11 @@ async def show_office(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ConversationHandler.END
     clear_application(context)
     if get_region(context) == FARGONA:
-        await update.message.reply_text("📍 Farg‘ona ofis manzili tez orada qo‘shiladi.")
-        return ConversationHandler.END
-    if get_region(context) == TASHKENT:
+        photo_path, caption, keyboard = (
+            FARGONA_OFFICE_PHOTO, FARGONA_OFFICE_TEXT, FARGONA_OFFICE_KEYBOARD,
+        )
+        cache_key = "fargona_office_photo"
+    elif get_region(context) == TASHKENT:
         photo_path, caption, keyboard = (
             TASHKENT_OFFICE_PHOTO, TASHKENT_OFFICE_TEXT, TASHKENT_OFFICE_KEYBOARD,
         )

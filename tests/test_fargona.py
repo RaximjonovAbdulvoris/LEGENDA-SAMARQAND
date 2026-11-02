@@ -27,14 +27,23 @@ class FargonaTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(regions.application_group("tashkent", "brand"), "-222")
 
     async def test_office_contact_do_not_use_another_city(self):
-        for handler in (start.show_contact, start.show_office):
-            message = N(reply_text=AsyncMock(), reply_photo=AsyncMock())
-            update = N(message=message, effective_chat=N(type="private"))
-            await handler(update, N(user_data={"region": "fargona"}, bot_data={}))
-            text = message.reply_text.await_args.args[0]
-            self.assertIn("Farg‘ona", text.replace("FARG‘ONA", "Farg‘ona"))
-            self.assertNotIn("ANDIJON", text)
-            message.reply_photo.assert_not_awaited()
+        message = N(reply_text=AsyncMock(), reply_photo=AsyncMock())
+        update = N(message=message, effective_chat=N(type="private"))
+        await start.show_contact(update, N(user_data={"region": "fargona"}, bot_data={}))
+        text = message.reply_text.await_args.args[0]
+        self.assertIn("Farg‘ona", text.replace("FARG‘ONA", "Farg‘ona"))
+        self.assertNotIn("ANDIJON", text)
+        message.reply_photo.assert_not_awaited()
+
+        message = N(reply_text=AsyncMock(), reply_photo=AsyncMock(return_value=N(photo=[])))
+        update = N(message=message, effective_chat=N(type="private"))
+        await start.show_office(update, N(user_data={"region": "fargona"}, bot_data={}))
+        message.reply_photo.assert_awaited_once()
+        kwargs = message.reply_photo.await_args.kwargs
+        self.assertEqual(kwargs["caption"], start.FARGONA_OFFICE_TEXT)
+        self.assertIs(kwargs["reply_markup"], start.FARGONA_OFFICE_KEYBOARD)
+        self.assertEqual(kwargs["photo"].name, str(start.FARGONA_OFFICE_PHOTO))
+        message.reply_text.assert_not_awaited()
 
     async def test_otherpark_uses_fargona_destination(self):
         ctx = N(bot=AsyncMock(), bot_data={})
